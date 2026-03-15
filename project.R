@@ -62,3 +62,5 @@ glimpse(complete_data)
 View(complete_data)
 
 sum(complete.cases(complete_data))
+
+# TODO: check time zones of both datasets (GMT vs GMT+1)
