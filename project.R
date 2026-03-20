@@ -2,6 +2,7 @@ library(tidyverse)
 library(arrow)
 library(lubridate)
 library(here) # for handling paths correctly
+here::i_am("project.R")
 
 # Description of this dataset is in docs/POLLUTANTS.md
 pollutants_data <- open_dataset(here("pollutants"))
