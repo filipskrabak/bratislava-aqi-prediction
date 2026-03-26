@@ -53,7 +53,7 @@ weather_data <- read_csv(weather_file_path, skip = 3) %>%
     Rain = `rain (mm)`,
     Wind_Speed = `wind_speed_10m (km/h)`
   ) %>%
-  select(Start, Temperature, Rain, Wind_Speed) %>%
+  #select(Start, Temperature, Rain, Wind_Speed) %>%
   filter(year(Start) >= 2017, year(Start) <= 2024)
 
 complete_data <- clean_air_data %>%
@@ -65,3 +65,42 @@ View(complete_data)
 sum(complete.cases(complete_data))
 
 # TODO: check time zones of both datasets (GMT vs GMT+1)
+
+## European AQI
+add_eaqi <- function(df) {
+  df %>%
+    mutate(
+      AQI_PM2.5 = case_when(
+        `PM2.5` <=   5 ~ 1L, `PM2.5` <=  15 ~ 2L, `PM2.5` <=  50 ~ 3L,
+        `PM2.5` <=  90 ~ 4L, `PM2.5` <= 140 ~ 5L, `PM2.5` >  140 ~ 6L
+      ),
+      AQI_PM10 = case_when(
+        PM10 <=  15 ~ 1L, PM10 <=  45 ~ 2L, PM10 <= 120 ~ 3L,
+        PM10 <= 195 ~ 4L, PM10 <= 270 ~ 5L, PM10 >  270 ~ 6L
+      ),
+      AQI_O3 = case_when(
+        O3 <=  60 ~ 1L, O3 <= 100 ~ 2L, O3 <= 120 ~ 3L,
+        O3 <= 160 ~ 4L, O3 <= 180 ~ 5L, O3 >  180 ~ 6L
+      ),
+      AQI_NO2 = case_when(
+        NO2 <=  10 ~ 1L, NO2 <=  25 ~ 2L, NO2 <=  60 ~ 3L,
+        NO2 <= 100 ~ 4L, NO2 <= 150 ~ 5L, NO2 >  150 ~ 6L
+      ),
+      AQI_SO2 = case_when(
+        SO2 <=  20 ~ 1L, SO2 <=  40 ~ 2L, SO2 <= 125 ~ 3L,
+        SO2 <= 190 ~ 4L, SO2 <= 275 ~ 5L, SO2 >  275 ~ 6L
+      ),
+      AQI = pmax(AQI_PM2.5, AQI_PM10, AQI_O3, AQI_NO2, AQI_SO2, na.rm = TRUE),
+      AQI_Label = case_when(
+        AQI == 1L ~ "Good",
+        AQI == 2L ~ "Fair",
+        AQI == 3L ~ "Moderate",
+        AQI == 4L ~ "Poor",
+        AQI == 5L ~ "Very poor",
+        AQI == 6L ~ "Extremely poor"
+      )
+    )
+}
+
+complete_data <- add_eaqi(complete_data)
+glimpse(complete_data)
