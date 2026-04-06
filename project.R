@@ -2,6 +2,7 @@ library(tidyverse)
 library(arrow)
 library(lubridate)
 library(here) # for handling paths correctly
+library(corrplot)
 here::i_am("project.R")
 
 # Description of this dataset is in docs/POLLUTANTS.md
@@ -104,3 +105,66 @@ add_eaqi <- function(df) {
 
 complete_data <- add_eaqi(complete_data)
 glimpse(complete_data)
+
+## AQI seasonal trends 2017–2024
+aqi_levels <- c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor")
+aqi_colors <- c("Good"           = "#50f0e6",
+                "Fair"           = "#50ccaa",
+                "Moderate"       = "#f0e641",
+                "Poor"           = "#ff5050",
+                "Very poor"      = "#960032",
+                "Extremely poor" = "#7d2181")
+
+complete_data %>%
+  mutate(
+    Week = floor_date(Start, "week"),
+    AQI_Label = factor(AQI_Label, levels = aqi_levels)
+  ) %>%
+  group_by(Week) %>%
+  summarise(AQI = mean(AQI, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = Week, y = AQI)) +
+  geom_line(color = "steelblue", linewidth = 0.4, alpha = 0.6) +
+  geom_smooth(method = "loess", span = 0.08, se = FALSE, color = "firebrick", linewidth = 1) +
+  scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(
+    breaks = 1:6,
+    labels = aqi_levels,
+    limits = c(1, 6)
+  ) +
+  labs(
+    title = "Weekly average AQI (2017–2024)",
+    subtitle = "Red line = LOESS trend",
+    x = NULL, y = "AQI level"
+  ) +
+  theme_minimal()
+
+## Correlation heatmap – all numeric variables
+complete_data %>%
+  select(where(is.numeric)) %>%
+  drop_na() %>%
+  cor() %>%
+  corrplot(
+    method   = "color",
+    type     = "upper",
+    addCoef.col = "black",
+    number.cex  = 0.7,
+    tl.col   = "black",
+    tl.srt   = 45,
+    col      = COL2("RdBu", 200),
+    title    = "Correlation matrix: all variables",
+    mar      = c(0, 0, 1.5, 0)
+  )
+
+## Wind Speed vs PM10
+complete_data %>%
+  drop_na(Wind_Speed, PM10) %>%
+  ggplot(aes(x = Wind_Speed, y = PM10)) +
+  geom_point(alpha = 0.1, color = "steelblue") +
+  geom_smooth(method = "gam", color = "firebrick", linewidth = 1) +
+  labs(
+    title    = "Non-linear impact of wind speed on PM10",
+    subtitle = "Bratislava air quality (2017–2024)",
+    x        = "Wind speed (km/h)",
+    y        = "PM10 concentration (µg/m³)"
+  ) +
+  theme_minimal()

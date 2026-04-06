@@ -1,0 +1,265 @@
+---
+title: "AQI Prediction - Elements of AI Capstone Project"
+author: "Filip Škrabák & Patrik Prizbul"
+date: "2026-03-15"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(arrow)
+library(lubridate)
+library(tsibble)
+library(here) # for handling paths correctly
+library(corrplot)
+library(zoo) # for na.approx
+here::i_am("project.Rmd")
+```
+
+# Introduction
+The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data. This requires us to merge two datasets - the pollutants dataset and the weather dataset.
+
+# Pollutants Dataset
+
+-   This dataset comes from [European Enviroment Agency (EEA) Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/)
+-   It contains pollutants from year 2017 until the end of 2024
+-   Dataset type is Primary Validated Data (E1a), which is verified
+-   Timezone is stated as UTC+1
+
+First, we load the dataset and take a look at its structure.
+
+```{r}
+pollutants_data <- open_dataset(here("pollutants"))
+
+glimpse(pollutants_data)
+```
+
+There are 12 columns and 902 260 rows. First, lets keep only the concerned station (SK0001A), the years of interest (2017-2024) and relevant columns.
+
+```{r}
+filtered_air_data <- pollutants_data %>%
+  select(Start, Pollutant, Value, Samplingpoint, Validity) %>% # lazy loading
+  filter(grepl("SK0001A", Samplingpoint)) %>%
+  filter(year(Start) >= 2017, year(Start) <= 2024) %>%
+  collect()
+```
+
+Lets look at numeric ranges and unique values of the columns.
+
+```{r}
+summary(filtered_air_data)
+```
+
+The summary suggests that:
+- The `Value` column contains some negative values, which are probably sensor errors.
+- The `Validity` is either 1 or 2. According to data source, both are valid, with 2 being below detection limit. We are keeping both.
+
+Next, we should translate the `Pollutant` codes into human readable names and reshape the data to have columns for each pollutant. Finally, we make sure the data is sorted by measurement time and we convert it into a tsibble for time series analysis.
+
+```{r}
+clean_air_data <- filtered_air_data %>%
+  # Translate EU codes into factors
+  mutate(Pollutant_Name = case_when(
+    Pollutant == 1 ~ "SO2",
+    Pollutant == 5 ~ "PM10",
+    Pollutant == 7 ~ "O3",
+    Pollutant == 8 ~ "NO2",
+    #Pollutant == 10 ~ "CO",
+    Pollutant == 6001 ~ "PM2.5",
+    TRUE ~ as.character(Pollutant)
+  )) %>%
+  select(Start, Pollutant_Name, Value) %>%
+  pivot_wider(
+    names_from = Pollutant_Name, 
+    values_from = Value
+  ) %>%
+  arrange(Start) %>%
+  as_tsibble(index = Start)
+
+glimpse(clean_air_data)
+
+View(clean_air_data)
+```
+
+Now we have a cleaned dataset with 5 pollutants. Lets check whether our time series has any gaps. Our data is hourly.
+
+Lets check gaps in our timeseries whether there are any missing hours. For now, we will 
+
+```{r}
+gaps <- clean_air_data %>%
+  scan_gaps()
+
+nrow(gaps)
+gaps
+```
+
+There are 410 gaps. For now, lets fill them with NA values. Also check the tsibble gaps again to make sure they are filled.
+```{r}
+clean_air_data <- clean_air_data %>%
+  fill_gaps()
+
+has_gaps(clean_air_data)
+
+interval(clean_air_data)
+duplicates(clean_air_data)
+```
+
+The output confirms there are no more gaps, the interval is 1 hour and there are no duplicates.
+
+```{r}
+complete_rows <- sum(complete.cases(clean_air_data)) # 60845
+rows <- nrow(clean_air_data) # 70128
+
+missing_percentage <- (rows - complete_rows) / rows * 100
+missing_percentage
+
+# longest gap
+clean_air_data %>%
+  as_tibble() %>%
+  pivot_longer(-Start, names_to = "pollutant", values_to = "value") %>%
+  arrange(pollutant, Start) %>%
+  group_by(pollutant) %>%
+  mutate(is_na = is.na(value),
+         group = cumsum(!is_na & !lag(!is_na, default = TRUE))) %>%
+  filter(is_na) %>%
+  group_by(pollutant, group) %>%
+  summarise(gap_start = min(Start), gap_end = max(Start), hours = n(), .groups = "drop") %>%
+  arrange(desc(hours)) %>%
+  select(-group) %>%
+  mutate(days = hours / 24)
+
+```
+
+13.24% of our data is missing. The longest gap (sequence of NA values) for any pollutant is 10.2 days for NO2.
+
+Next step is to impute the missing values. We use a 2 step approach. 
+- Linear interpolation for small gaps (smaller than 8 hours)
+- Mean for same hour of day - for larger gaps, this respects the cycles in the data
+
+```{r}
+impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3) {
+  # linear interp for small gaps
+  x_out <- na.approx(x, na.rm = FALSE, maxgap = max_linear)
+  hrs <- hour(timestamps)
+  global_means <- tapply(x, hrs, mean, na.rm = TRUE)
+
+  # mean for same hour of day for larger gaps
+  for (i in which(is.na(x_out))) {
+    window <- which(
+      abs(seq_along(x_out) - i) <= window_days * 24 &
+      hrs == hrs[i] &
+      !is.na(x_out)
+    )
+    x_out[i] <- if (length(window) > 0) mean(x_out[window]) else global_means[[as.character(hrs[i])]]
+  }
+  x_out
+}
+
+complete_air_data <- clean_air_data %>%
+  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ impute_missing_values(.x, Start, max_linear = 8, window_days = 3)))
+
+complete_rows <- sum(complete.cases(complete_air_data)) # 60845
+rows <- nrow(complete_air_data) # 70128
+missing_percentage <- (rows - complete_rows) / rows * 100
+missing_percentage
+```
+
+Now, the dataset is complete with no missing values.
+
+# Weather Dataset
+
+-   This dataset comes from [Open Meteo Historical Weather](https://open-meteo.com/en/docs/historical-weather-api)
+-   It contains weather data from year 2017 until the end of 2024
+-   Timezone is stated as GMT+0
+
+Loading the dataset and merging it with pollutants:
+```{r}
+weather_file_path <- here("weather", "open-meteo-48.12N17.10E163m.csv")
+
+# TODO: select more variables, reason about which ones
+weather_data <- read_csv(weather_file_path, skip = 3) %>%
+  rename(
+    Start = time,
+    Temperature = `temperature_2m (°C)`,
+    Rain = `rain (mm)`,
+    Wind_Speed = `wind_speed_10m (km/h)`
+  ) %>%
+  #select(Start, Temperature, Rain, Wind_Speed) %>%
+  filter(year(Start) >= 2017, year(Start) <= 2024)
+
+complete_rows_weather <- sum(complete.cases(weather_data))
+rows_weather <- nrow(weather_data)
+missing_percentage_weather <- (rows_weather - complete_rows_weather) / rows_weather * 100
+missing_percentage_weather
+
+complete_data <- complete_air_data %>%
+  inner_join(weather_data, by = "Start")
+
+glimpse(complete_data)
+summary(complete_data)
+has_gaps(complete_data)
+```
+
+The open meteo dataset has no missing values. The merge has not changed the row count, and our time series is has no gaps. Currently, we have 36 columns.
+
+Next step is to add AQI.
+
+```{r}
+
+## European AQI
+add_eaqi <- function(df) {
+  df %>%
+    mutate(
+      AQI_PM2.5 = case_when(
+        `PM2.5` <=   5 ~ 1L, `PM2.5` <=  15 ~ 2L, `PM2.5` <=  50 ~ 3L,
+        `PM2.5` <=  90 ~ 4L, `PM2.5` <= 140 ~ 5L, `PM2.5` >  140 ~ 6L
+      ),
+      AQI_PM10 = case_when(
+        PM10 <=  15 ~ 1L, PM10 <=  45 ~ 2L, PM10 <= 120 ~ 3L,
+        PM10 <= 195 ~ 4L, PM10 <= 270 ~ 5L, PM10 >  270 ~ 6L
+      ),
+      AQI_O3 = case_when(
+        O3 <=  60 ~ 1L, O3 <= 100 ~ 2L, O3 <= 120 ~ 3L,
+        O3 <= 160 ~ 4L, O3 <= 180 ~ 5L, O3 >  180 ~ 6L
+      ),
+      AQI_NO2 = case_when(
+        NO2 <=  10 ~ 1L, NO2 <=  25 ~ 2L, NO2 <=  60 ~ 3L,
+        NO2 <= 100 ~ 4L, NO2 <= 150 ~ 5L, NO2 >  150 ~ 6L
+      ),
+      AQI_SO2 = case_when(
+        SO2 <=  20 ~ 1L, SO2 <=  40 ~ 2L, SO2 <= 125 ~ 3L,
+        SO2 <= 190 ~ 4L, SO2 <= 275 ~ 5L, SO2 >  275 ~ 6L
+      ),
+      AQI = pmax(AQI_PM2.5, AQI_PM10, AQI_O3, AQI_NO2, AQI_SO2, na.rm = TRUE),
+      AQI_Label = case_when(
+        AQI == 1L ~ "Good",
+        AQI == 2L ~ "Fair",
+        AQI == 3L ~ "Moderate",
+        AQI == 4L ~ "Poor",
+        AQI == 5L ~ "Very poor",
+        AQI == 6L ~ "Extremely poor"
+      )
+    )
+}
+
+complete_data <- add_eaqi(complete_data)
+glimpse(complete_data)
+
+## AQI seasonal trends 2017–2024
+aqi_levels <- c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor")
+aqi_colors <- c("Good"           = "#50f0e6",
+                "Fair"           = "#50ccaa",
+                "Moderate"       = "#f0e641",
+                "Poor"           = "#ff5050",
+                "Very poor"      = "#960032",
+                "Extremely poor" = "#7d2181")
+```
