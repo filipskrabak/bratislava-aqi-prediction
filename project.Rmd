@@ -22,6 +22,10 @@ library(tsibble)
 library(here) # for handling paths correctly
 library(corrplot)
 library(zoo) # for na.approx
+library(forecast)
+library(generics)
+library(fable)
+library(feasts)
 here::i_am("project.Rmd")
 ```
 
@@ -147,19 +151,27 @@ Next step is to impute the missing values. We use a 2 step approach.
 
 ```{r}
 impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3) {
-  # linear interp for small gaps
-  x_out <- na.approx(x, na.rm = FALSE, maxgap = max_linear)
-  hrs <- hour(timestamps)
-  global_means <- tapply(x, hrs, mean, na.rm = TRUE)
+  x_out <- zoo::na.approx(x, na.rm = FALSE, maxgap = max_linear)
 
-  # mean for same hour of day for larger gaps
-  for (i in which(is.na(x_out))) {
-    window <- which(
-      abs(seq_along(x_out) - i) <= window_days * 24 &
-      hrs == hrs[i] &
-      !is.na(x_out)
-    )
-    x_out[i] <- if (length(window) > 0) mean(x_out[window]) else global_means[[as.character(hrs[i])]]
+  hrs <- lubridate::hour(timestamps)
+  n   <- length(x_out)
+
+  global_hour_mean <- tapply(x, hrs, mean, na.rm = TRUE)
+
+  for (i in seq_len(n)) {
+    if (!is.na(x_out[i])) next
+
+    neighbours <- max(1, i - window_days * 24) : min(n, i + window_days * 24)
+
+    same_hour_and_known <- neighbours[
+      hrs[neighbours] == hrs[i] & !is.na(x_out[neighbours])
+    ]
+
+    x_out[i] <- if (length(same_hour_and_known) > 0) {
+      mean(x_out[same_hour_and_known]) 
+    } else {
+      global_hour_mean[[ as.character(hrs[i]) ]] 
+    }
   }
   x_out
 }
@@ -262,4 +274,16 @@ aqi_colors <- c("Good"           = "#50f0e6",
                 "Poor"           = "#ff5050",
                 "Very poor"      = "#960032",
                 "Extremely poor" = "#7d2181")
+```
+
+STL decomposition of AQI:
+
+```{r}
+complete_data %>%
+  model(STL(AQI ~ trend() + season("1 year"), robust = TRUE)) %>%
+  components() %>%
+  autoplot(linewidth = 0.001) +
+  labs(title = "STL Decomposition of AQI", x = "Time", y = "AQI") +
+  theme_minimal()
+
 ```
