@@ -225,7 +225,7 @@ summary(complete_data)
 has_gaps(complete_data)
 ```
 
-The open meteo dataset has no missing values. The merge has not changed the row count, and our time series is has no gaps. Currently, we have 36 columns.
+The open meteo dataset has no missing values. The merge has not changed the row count, and our time series has no gaps. Currently, we have 36 columns.
 
 Next step is to add AQI.
 
