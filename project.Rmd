@@ -26,6 +26,7 @@ library(forecast)
 library(generics)
 library(fable)
 library(feasts)
+library(ggtime) ## gg_season
 here::i_am("project.Rmd")
 ```
 
@@ -276,6 +277,9 @@ aqi_colors <- c("Good"           = "#50f0e6",
                 "Extremely poor" = "#7d2181")
 ```
 
+# EDA
+## Decomposition and seasonality
+
 STL decomposition of AQI:
 
 ```{r}
@@ -286,4 +290,134 @@ complete_data %>%
   labs(title = "STL Decomposition of AQI", x = "Time", y = "AQI") +
   theme_minimal()
 
+noise <- complete_data %>%
+  model(STL(AQI ~ trend() + season("1 year"), robust = TRUE)) %>%
+  components()
+
+```
+
+```{r}
+monthly_aqi <- complete_data %>%
+  as_tibble() %>%
+  mutate(Month = yearmonth(Start)) %>%
+  group_by(Month) %>%
+  summarise(AQI = mean(AQI), .groups = "drop") %>%
+  as_tsibble(index = Month)
+
+monthly_aqi %>%
+  gg_season(AQI, labels = "right") +
+  scale_y_continuous(breaks = 1:6,
+                     labels = c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor"),
+                     limits = c(1, 6)) +
+  labs(y = "Mean Monthly AQI", x = "Month",
+       title = "Seasonal plot - monthly AQI by year (2017–2024)") +
+  theme_minimal()
+```
+
+The seasonal plot clearly shows a **winter peak (Nov–Mar)** and **summer trough (May–Sep)** consistent across all years, driven primarily by PM2.5 from residential heating.
+
+```{r}
+hourly_aqi <- complete_data %>%
+  as_tibble() %>%
+  mutate(Hour = hour(Start)) %>%
+  group_by(Hour) %>%
+  summarise(
+    Mean  = mean(AQI, na.rm = TRUE),
+    Q25   = quantile(AQI, 0.25, na.rm = TRUE),
+    Q75   = quantile(AQI, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(hourly_aqi, aes(x = Hour)) +
+  geom_ribbon(aes(ymin = Q25, ymax = Q75), fill = "steelblue", alpha = 0.25) +
+  geom_line(aes(y = Mean), color = "steelblue", linewidth = 1) +
+  geom_point(aes(y = Mean), color = "steelblue", size = 2) +
+  scale_x_continuous(breaks = 0:23) +
+  scale_y_continuous(
+    breaks = 1:6,
+    labels = c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor"),
+    limits = c(1, 6)
+  ) +
+  labs(
+    title = "Diurnal AQI pattern (hour of day, 2017–2024)",
+    subtitle = "Line = mean, ribbon = IQR (25th–75th percentile)",
+    x = "Hour of day", y = "AQI level"
+  ) +
+  theme_minimal()
+```
+
+The diurnal plot reveals two daily peaks: a **morning rush (7–9h)** and an **evening peak (18–22h)**, matching traffic and heating cycles. The overnight trough (3–5h) reflects reduced emissions and boundary layer recovery. The relatively flat mean (within ~0.3 AQI units) suggests hour-of-day is a weaker driver than season, but the wide IQR band shows high within-hour variability — winter nights pull the upper quartile sharply upward.
+
+```{r}
+complete_data %>%
+  as_tibble() %>%
+  mutate(
+    Week = floor_date(Start, "week"),
+    AQI_Label = factor(AQI_Label, levels = aqi_levels)
+  ) %>%
+  group_by(Week) %>%
+  summarise(AQI = mean(AQI, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = Week, y = AQI)) +
+  geom_line(color = "steelblue", linewidth = 0.4, alpha = 0.6) +
+  geom_smooth(method = "loess", span = 0.08, se = FALSE, color = "firebrick", linewidth = 1) +
+  scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(
+    breaks = 1:6,
+    labels = aqi_levels,
+    limits = c(1, 6)
+  ) +
+  labs(
+    title = "Weekly average AQI (2017–2024)",
+    subtitle = "Red line = LOESS trend",
+    x = NULL, y = "AQI level"
+  ) +
+  theme_minimal()
+```
+
+## Autocorrelation
+
+### ACF of AQI with all components (2017–2024)
+
+```{r}
+complete_data %>%
+  as_tibble() %>%
+  select(Start, AQI) %>%
+  as_tsibble(index = Start) %>%
+  ACF(AQI, lag_max = 48 * 7) %>% # up to one week of hourly lags
+  autoplot() +
+  labs(title = "ACF of AQI (2017–2024)", x = "Lag (hours)", y = "ACF") +
+  theme_minimal()
+```
+
+### ACF of AQI noise (residuals from STL decomposition)
+
+```{r}
+noise %>%
+  ACF(remainder, lag_max = 48 * 7) %>%
+  autoplot() +
+  labs(title = "ACF of AQI Noise (STL Remainder)", x = "Lag (hours)", y = "ACF") +
+  theme_minimal()
+```
+
+### ACF after removing annual + weekly + daily seasonality
+
+```{r}
+noise_full <- complete_data %>%
+  model(STL(AQI ~ trend() + season("1 year") + season("week") + season("day"), robust = TRUE)) %>%
+  components()
+
+noise_full %>%
+  ACF(remainder, lag_max = 48 * 7) %>%
+  autoplot() +
+  labs(title = "ACF of AQI Noise (STL: annual + weekly + daily removed)", x = "Lag (hours)", y = "ACF") +
+  theme_minimal()
+```
+
+### Stationarity tests
+```{r}
+complete_data %>%
+  as_tibble() %>%
+  select(Start, AQI) %>%
+  as_tsibble(index = Start) %>%
+  features(AQI, unitroot_kpss)
 ```
