@@ -55,7 +55,8 @@ filtered_air_data <- pollutants_data %>%
   select(Start, Pollutant, Value, Samplingpoint, Validity) %>% # lazy loading
   filter(grepl("SK0001A", Samplingpoint)) %>%
   filter(year(Start) >= 2017, year(Start) <= 2024) %>%
-  collect()
+  collect() %>%
+  mutate(Start = with_tz(force_tz(Start, "Etc/GMT-1"), "UTC")) # making sure the TZ is consistent
 ```
 
 Lets look at numeric ranges and unique values of the columns.
@@ -178,7 +179,8 @@ impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3
 }
 
 complete_air_data <- clean_air_data %>%
-  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ impute_missing_values(.x, Start, max_linear = 8, window_days = 3)))
+  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ impute_missing_values(.x, Start, max_linear = 8, window_days = 3))) %>%
+  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ pmax(.x, 0))) # fix sensor errors by clamping to 0
 
 complete_rows <- sum(complete.cases(complete_air_data)) # 60845
 rows <- nrow(complete_air_data) # 70128
