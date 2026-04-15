@@ -27,6 +27,7 @@ library(generics)
 library(fable)
 library(feasts)
 library(ggtime) ## gg_season
+library(tseries) # for adf.test
 here::i_am("project.Rmd")
 ```
 
@@ -457,17 +458,21 @@ complete_data %>%
 ```
 
 ### Stationarity tests
+We run the KPSS and ADF tests to check whether our series is stationary.
+
 ```{r}
-# tu asi este pridat ADF test
-
-# adf
-
-complete_data %>%
-  as_tibble() %>%
-  select(Start, AQI) %>%
-  as_tsibble(index = Start) %>%
-  features(AQI, unitroot_kpss)
+tseries::kpss.test(complete_data$AQI)
 ```
+
+The KPSS rejects stationarity (H0: stationary), p value < 0.01
+
+```{r}
+tseries::adf.test(complete_data$AQI)
+```
+
+ADF rejects the unit root (H0: series has a unit root), p value < 0.01
+
+This should indicate seasonal non-stationarity. The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
 
 # Random Forest — 24h ahead (minimal prototype)
 
