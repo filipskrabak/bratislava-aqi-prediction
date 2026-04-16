@@ -34,6 +34,9 @@ here::i_am("project.Rmd")
 # Introduction
 The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data. This requires us to merge two datasets - the pollutants dataset and the weather dataset.
 
+## Project Hypothesis: (concept)
+Recent pollutant concentrations and weather conditions in Bratislava are jointly sufficient to predict the AQI 24 hours ahead.
+
 # Pollutants Dataset
 
 -   This dataset comes from [European Enviroment Agency (EEA) Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/)
