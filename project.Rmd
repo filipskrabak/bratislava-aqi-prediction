@@ -59,8 +59,7 @@ filtered_air_data <- pollutants_data %>%
   select(Start, Pollutant, Value, Samplingpoint, Validity) %>% # lazy loading
   filter(grepl("SK0001A", Samplingpoint)) %>%
   filter(year(Start) >= 2017, year(Start) <= 2024) %>%
-  collect() %>%
-  mutate(Start = with_tz(force_tz(Start, "Etc/GMT-1"), "UTC")) # making sure the TZ is consistent
+  collect() 
 ```
 
 Lets look at numeric ranges and unique values of the columns.
@@ -97,7 +96,7 @@ clean_air_data <- filtered_air_data %>%
 
 glimpse(clean_air_data)
 
-View(clean_air_data)
+#View(clean_air_data)
 ```
 
 Now we have a cleaned dataset with 5 pollutants. Lets check whether our time series has any gaps. Our data is hourly.
@@ -183,8 +182,8 @@ impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3
 }
 
 complete_air_data <- clean_air_data %>%
-  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ impute_missing_values(.x, Start, max_linear = 8, window_days = 3))) %>%
-  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ pmax(.x, 0))) # fix sensor errors by clamping to 0
+  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ 
+    pmax(impute_missing_values(.x, Start, max_linear = 8, window_days = 3), 0)))
 
 complete_rows <- sum(complete.cases(complete_air_data)) # 60845
 rows <- nrow(complete_air_data) # 70128
@@ -493,8 +492,9 @@ rf_df <- complete_data %>%
     hour = hour(Start),
     month = month(Start),
     AQI_p24 = lead(AQI, 24) # predicted
-  )  %>%
-  mutate(AQI_p24 = factor(AQI_p24, levels = 1:6, ordered = TRUE)) 
+  ) %>%
+  drop_na() %>%  # remove lead/lag NAs
+  mutate(AQI_p24 = factor(AQI_p24, levels = 1:6, ordered = TRUE))
 
 
 train_rf <- rf_df %>% filter(year(Start) <= 2022) %>% select(-Start)
@@ -509,7 +509,7 @@ cat("Train rows:", nrow(train_rf), " | Test rows:", nrow(test_rf), "\n")
 set.seed(2026)
 rf_model <- ranger(
   AQI_p24 ~ .,
-  data = train_rf_clf,
+  data = train_rf,
   num.trees = 300,
   importance = "permutation",
   num.threads = parallel::detectCores()
@@ -521,21 +521,20 @@ rf_model
 ```{r}
 # Evaluate on test set
 preds_rf <- as.integer(as.character(predict(rf_model, test_rf)$predictions))
-actual_rf <- as.integer(as.character(test_rf_clf$AQI_p24))
-ok <- !is.na(actual_rf) # at the end of dataset, the lead creates NA
+actual_rf <- as.integer(as.character(test_rf$AQI_p24))
 
-rmse_rf <- sqrt(mean((actual_rf[ok] - preds_rf[ok])^2))
-mae_rf <- mean(abs(actual_rf[ok] - preds_rf[ok]))
-acc_rf <- mean(preds_rf[ok] == actual_rf[ok])
-w1_rf  <- mean(abs(preds_rf[ok] - actual_rf[ok]) <= 1)
+rmse_rf <- sqrt(mean((actual_rf - preds_rf)^2))
+mae_rf <- mean(abs(actual_rf - preds_rf))
+acc_rf <- mean(preds_rf == actual_rf)
+w1_rf <- mean(abs(preds_rf - actual_rf) <= 1)
 
 cat(sprintf("RMSE: %.4f | MAE: %.4f | Exact: %.1f%% | Within +-1 class: %.1f%%\n", rmse_rf, mae_rf, acc_rf * 100, w1_rf * 100))
 
 tibble(
   Class = 1:6,
   Label = aqi_levels,
-  Actual = as.integer(table(factor(actual_rf[ok],  levels = 1:6))),
-  Predicted = as.integer(table(factor(preds_rf[ok],levels = 1:6)))
+  Actual = as.integer(table(factor(actual_rf, levels = 1:6))),
+  Predicted = as.integer(table(factor(preds_rf,  levels = 1:6)))
 ) %>% print()
 ```
 
