@@ -1,0 +1,1441 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\usepackage{framed}
+\definecolor{shadecolor}{RGB}{248,248,248}
+\newenvironment{Shaded}{\begin{snugshade}}{\end{snugshade}}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{0.94,0.16,0.16}{#1}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\BuiltInTok}[1]{#1}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{0.64,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.00,0.00,0.81}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\ImportTok}[1]{#1}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.13,0.29,0.53}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textit{#1}}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.81,0.36,0.00}{\textbf{#1}}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.00,0.00,0.00}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.31,0.60,0.02}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.56,0.35,0.01}{\textbf{\textit{#1}}}}
+\usepackage{graphicx}
+\makeatletter
+\newsavebox\pandoc@box
+\newcommand*\pandocbounded[1]{% scales image to fit in text height/width
+  \sbox\pandoc@box{#1}%
+  \Gscale@div\@tempa{\textheight}{\dimexpr\ht\pandoc@box+\dp\pandoc@box\relax}%
+  \Gscale@div\@tempb{\linewidth}{\wd\pandoc@box}%
+  \ifdim\@tempb\p@<\@tempa\p@\let\@tempa\@tempb\fi% select the smaller of both
+  \ifdim\@tempa\p@<\p@\scalebox{\@tempa}{\usebox\pandoc@box}%
+  \else\usebox{\pandoc@box}%
+  \fi%
+}
+% Set default figure placement to htbp
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={AQI Prediction - Elements of AI Capstone Project},
+  pdfauthor={Filip Škrabák \& Patrik Prizbul},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+
+\title{AQI Prediction - Elements of AI Capstone Project}
+\author{Filip Škrabák \& Patrik Prizbul}
+\date{2026-03-15}
+
+\begin{document}
+\maketitle
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(tidyverse)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## -- Attaching core tidyverse packages ------------------------ tidyverse 2.0.0 --
+## v dplyr     1.1.4     v readr     2.1.5
+## v forcats   1.0.0     v stringr   1.5.1
+## v ggplot2   3.5.1     v tibble    3.2.1
+## v lubridate 1.9.4     v tidyr     1.3.1
+## v purrr     1.0.4     
+## -- Conflicts ------------------------------------------ tidyverse_conflicts() --
+## x dplyr::filter() masks stats::filter()
+## x dplyr::lag()    masks stats::lag()
+## i Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(arrow)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'arrow' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## 
+## Attaching package: 'arrow'
+## 
+## The following object is masked from 'package:lubridate':
+## 
+##     duration
+## 
+## The following object is masked from 'package:utils':
+## 
+##     timestamp
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(lubridate)}
+\FunctionTok{library}\NormalTok{(tsibble)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'tsibble' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## 
+## Attaching package: 'tsibble'
+## 
+## The following object is masked from 'package:lubridate':
+## 
+##     interval
+## 
+## The following objects are masked from 'package:base':
+## 
+##     intersect, setdiff, union
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(here) }\CommentTok{\# for handling paths correctly}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'here' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## here() starts at C:/Users/Patrick/OneDrive - Slovenská technická univerzita v Bratislave/OZNAL/oznal-project26
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(corrplot)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'corrplot' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## corrplot 0.95 loaded
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(zoo) }\CommentTok{\# for na.approx}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## 
+## Attaching package: 'zoo'
+## 
+## The following object is masked from 'package:tsibble':
+## 
+##     index
+## 
+## The following objects are masked from 'package:base':
+## 
+##     as.Date, as.Date.numeric
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(forecast)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'forecast' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(generics)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'generics' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## 
+## Attaching package: 'generics'
+## 
+## The following object is masked from 'package:lubridate':
+## 
+##     as.difftime
+## 
+## The following object is masked from 'package:dplyr':
+## 
+##     explain
+## 
+## The following objects are masked from 'package:base':
+## 
+##     as.difftime, as.factor, as.ordered, intersect, is.element, setdiff,
+##     setequal, union
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(fable)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'fable' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## Loading required package: fabletools
+\end{verbatim}
+
+\begin{verbatim}
+## Warning: package 'fabletools' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(feasts)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'feasts' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(ggtime) }\DocumentationTok{\#\# gg\_season}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'ggtime' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(tseries) }\CommentTok{\# for adf.test}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'tseries' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{verbatim}
+## Registered S3 method overwritten by 'quantmod':
+##   method            from
+##   as.zoo.data.frame zoo
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{here}\SpecialCharTok{::}\FunctionTok{i\_am}\NormalTok{(}\StringTok{"project.Rmd"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## here() starts at C:/Users/Patrick/OneDrive - Slovenská technická univerzita v Bratislave/OZNAL/oznal-project26
+\end{verbatim}
+
+\section{Introduction}\label{introduction}
+
+The main objective of this project is to predict the Air Quality Index
+(AQI) for Bratislava, Slovakia, using historical air quality and weather
+data. This requires us to merge two datasets - the pollutants dataset
+and the weather dataset.
+
+\subsection{Project Hypothesis:
+(concept)}\label{project-hypothesis-concept}
+
+Recent pollutant concentrations and weather conditions in Bratislava are
+jointly sufficient to predict the AQI 24 hours ahead.
+
+\section{Pollutants Dataset}\label{pollutants-dataset}
+
+\begin{itemize}
+\tightlist
+\item
+  This dataset comes from
+  \href{https://eeadmz1-downloads-webapp.azurewebsites.net/}{European
+  Enviroment Agency (EEA) Air Quality Download Service}
+\item
+  It contains pollutants from year 2017 until the end of 2024
+\item
+  Dataset type is Primary Validated Data (E1a), which is verified
+\item
+  Timezone is stated as UTC+1
+\end{itemize}
+
+First, we load the dataset and take a look at its structure.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{pollutants\_data }\OtherTok{\textless{}{-}} \FunctionTok{open\_dataset}\NormalTok{(}\FunctionTok{here}\NormalTok{(}\StringTok{"pollutants"}\NormalTok{))}
+\FunctionTok{glimpse}\NormalTok{(pollutants\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## FileSystemDataset with 11 Parquet files
+## 902,260 rows x 12 columns
+## $ Samplingpoint           <string> "SK/SPO-SK0001A_00001_500", "SK/SPO-SK0001A_0~
+## $ Pollutant                <int32> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ~
+## $ Start            <timestamp[ns]> 2015-01-01 01:00:00, 2015-01-01 02:00:00, 201~
+## $ End              <timestamp[ns]> 2015-01-01 02:00:00, 2015-01-01 03:00:00, 201~
+## $ Value       <decimal128(38, 18)> 6.29622, 1.54280, 2.27962, 1.48694, 0.89908, ~
+## $ Unit                    <string> "ug.m-3", "ug.m-3", "ug.m-3", "ug.m-3", "ug.m~
+## $ AggType                 <string> "hour", "hour", "hour", "hour", "hour", "hour~
+## $ Validity                 <int32> 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ~
+## $ Verification             <int32> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ~
+## $ ResultTime       <timestamp[ns]> 2016-10-09 14:16:10, 2016-09-20 18:28:27, 201~
+## $ DataCapture <decimal128(38, 18)> NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, N~
+## $ FkObservationLog        <string> "c4ae7c45-b99e-45d3-ad97-731478417d66", "8602~
+\end{verbatim}
+
+There are 12 columns and 902 260 rows. First, lets keep only the
+concerned station (SK0001A), the years of interest (2017-2024) and
+relevant columns.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{filtered\_air\_data }\OtherTok{\textless{}{-}}\NormalTok{ pollutants\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(Start, Pollutant, Value, Samplingpoint, Validity) }\SpecialCharTok{\%\textgreater{}\%} \CommentTok{\# lazy loading}
+  \FunctionTok{filter}\NormalTok{(}\FunctionTok{grepl}\NormalTok{(}\StringTok{"SK0001A"}\NormalTok{, Samplingpoint)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{filter}\NormalTok{(}\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textgreater{}=} \DecValTok{2017}\NormalTok{, }\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textless{}=} \DecValTok{2024}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{collect}\NormalTok{() }
+\end{Highlighting}
+\end{Shaded}
+
+Lets look at numeric ranges and unique values of the columns.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{summary}\NormalTok{(filtered\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##      Start                          Pollutant        Value        
+##  Min.   :2017-01-01 01:00:00.00   Min.   :   1   Min.   : -3.836  
+##  1st Qu.:2019-01-01 10:00:00.00   1st Qu.:   5   1st Qu.:  5.410  
+##  Median :2020-12-29 00:30:00.00   Median :   7   Median : 12.783  
+##  Mean   :2020-12-29 15:50:02.91   Mean   :1223   Mean   : 21.264  
+##  3rd Qu.:2022-12-26 14:00:00.00   3rd Qu.:   8   3rd Qu.: 27.421  
+##  Max.   :2025-01-01 00:00:00.00   Max.   :6001   Max.   :657.845  
+##  Samplingpoint         Validity    
+##  Length:338624      Min.   :1.000  
+##  Class :character   1st Qu.:1.000  
+##  Mode  :character   Median :1.000  
+##                     Mean   :1.134  
+##                     3rd Qu.:1.000  
+##                     Max.   :2.000
+\end{verbatim}
+
+The summary suggests that: - The \texttt{Value} column contains some
+negative values, which are probably sensor errors. - The
+\texttt{Validity} is either 1 or 2. According to data source, both are
+valid, with 2 being below detection limit. We are keeping both.
+
+Next, we should translate the \texttt{Pollutant} codes into human
+readable names and reshape the data to have columns for each pollutant.
+Finally, we make sure the data is sorted by measurement time and we
+convert it into a tsibble for time series analysis.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{clean\_air\_data }\OtherTok{\textless{}{-}}\NormalTok{ filtered\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \CommentTok{\# Translate EU codes into factors}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{Pollutant\_Name =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{    Pollutant }\SpecialCharTok{==} \DecValTok{1} \SpecialCharTok{\textasciitilde{}} \StringTok{"SO2"}\NormalTok{,}
+\NormalTok{    Pollutant }\SpecialCharTok{==} \DecValTok{5} \SpecialCharTok{\textasciitilde{}} \StringTok{"PM10"}\NormalTok{,}
+\NormalTok{    Pollutant }\SpecialCharTok{==} \DecValTok{7} \SpecialCharTok{\textasciitilde{}} \StringTok{"O3"}\NormalTok{,}
+\NormalTok{    Pollutant }\SpecialCharTok{==} \DecValTok{8} \SpecialCharTok{\textasciitilde{}} \StringTok{"NO2"}\NormalTok{,}
+    \CommentTok{\#Pollutant == 10 \textasciitilde{} "CO",}
+\NormalTok{    Pollutant }\SpecialCharTok{==} \DecValTok{6001} \SpecialCharTok{\textasciitilde{}} \StringTok{"PM2.5"}
+\NormalTok{  )) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(Start, Pollutant\_Name, Value) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{pivot\_wider}\NormalTok{(}
+    \AttributeTok{names\_from =}\NormalTok{ Pollutant\_Name, }
+    \AttributeTok{values\_from =}\NormalTok{ Value}
+\NormalTok{  ) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{arrange}\NormalTok{(Start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tsibble}\NormalTok{(}\AttributeTok{index =}\NormalTok{ Start)}
+
+\FunctionTok{glimpse}\NormalTok{(clean\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Rows: 69,718
+## Columns: 6
+## $ Start <dttm> 2017-01-01 01:00:00, 2017-01-01 02:00:00, 2017-01-01 03:00:00, ~
+## $ SO2   <dbl> 7.385760, 5.626700, 2.493750, 2.072940, 2.000850, 2.052720, 2.32~
+## $ O3    <dbl> 3.4882, 4.1040, 3.0622, NA, 3.3312, 3.3406, 2.6328, 2.5596, 8.26~
+## $ PM10  <dbl> 222.950, 195.860, 145.570, 131.990, 94.357, 79.897, 81.212, 75.3~
+## $ NO2   <dbl> NA, 45.5553, 38.1042, 31.0796, 31.3415, 31.2841, 31.2268, 31.788~
+## $ PM2.5 <dbl> 221.790, 201.800, 156.220, 142.550, 103.110, 88.121, 89.452, 83.~
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#View(clean\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+Now we have a cleaned dataset with 5 pollutants. Lets check whether our
+time series has any gaps. Our data is hourly.
+
+Lets check gaps in our timeseries whether there are any missing hours.
+For now, we will
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{gaps }\OtherTok{\textless{}{-}}\NormalTok{ clean\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{scan\_gaps}\NormalTok{()}
+
+\FunctionTok{nrow}\NormalTok{(gaps)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 410
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{gaps}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tsibble: 410 x 1 [1h] <?>
+##    Start              
+##    <dttm>             
+##  1 2017-05-23 19:00:00
+##  2 2017-05-29 15:00:00
+##  3 2017-05-29 16:00:00
+##  4 2017-05-29 17:00:00
+##  5 2017-05-29 18:00:00
+##  6 2017-05-29 19:00:00
+##  7 2018-02-23 12:00:00
+##  8 2018-02-23 13:00:00
+##  9 2018-02-23 14:00:00
+## 10 2018-02-23 15:00:00
+## # i 400 more rows
+\end{verbatim}
+
+There are 410 gaps. For now, lets fill them with NA values. Also check
+the tsibble gaps again to make sure they are filled.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{clean\_air\_data }\OtherTok{\textless{}{-}}\NormalTok{ clean\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{fill\_gaps}\NormalTok{()}
+
+\FunctionTok{has\_gaps}\NormalTok{(clean\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 1 x 1
+##   .gaps
+##   <lgl>
+## 1 FALSE
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{interval}\NormalTok{(clean\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## <interval[1]>
+## [1] 1h
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{duplicates}\NormalTok{(clean\_air\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Using `Start` as index variable.
+\end{verbatim}
+
+\begin{verbatim}
+## # A tibble: 0 x 6
+## # i 6 variables: Start <dttm>, SO2 <dbl>, O3 <dbl>, PM10 <dbl>, NO2 <dbl>,
+## #   PM2.5 <dbl>
+\end{verbatim}
+
+The output confirms there are no more gaps, the interval is 1 hour and
+there are no duplicates.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_rows }\OtherTok{\textless{}{-}} \FunctionTok{sum}\NormalTok{(}\FunctionTok{complete.cases}\NormalTok{(clean\_air\_data)) }\CommentTok{\# 60845}
+\NormalTok{rows }\OtherTok{\textless{}{-}} \FunctionTok{nrow}\NormalTok{(clean\_air\_data) }\CommentTok{\# 70128}
+
+\NormalTok{missing\_percentage }\OtherTok{\textless{}{-}}\NormalTok{ (rows }\SpecialCharTok{{-}}\NormalTok{ complete\_rows) }\SpecialCharTok{/}\NormalTok{ rows }\SpecialCharTok{*} \DecValTok{100}
+\NormalTok{missing\_percentage}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 13.23722
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# longest gap}
+\NormalTok{clean\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{pivot\_longer}\NormalTok{(}\SpecialCharTok{{-}}\NormalTok{Start, }\AttributeTok{names\_to =} \StringTok{"pollutant"}\NormalTok{, }\AttributeTok{values\_to =} \StringTok{"value"}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{arrange}\NormalTok{(pollutant, Start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(pollutant) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{is\_na =} \FunctionTok{is.na}\NormalTok{(value),}
+         \AttributeTok{group =} \FunctionTok{cumsum}\NormalTok{(}\SpecialCharTok{!}\NormalTok{is\_na }\SpecialCharTok{\&} \SpecialCharTok{!}\FunctionTok{lag}\NormalTok{(}\SpecialCharTok{!}\NormalTok{is\_na, }\AttributeTok{default =} \ConstantTok{TRUE}\NormalTok{))) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{filter}\NormalTok{(is\_na) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(pollutant, group) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}\AttributeTok{gap\_start =} \FunctionTok{min}\NormalTok{(Start), }\AttributeTok{gap\_end =} \FunctionTok{max}\NormalTok{(Start), }\AttributeTok{hours =} \FunctionTok{n}\NormalTok{(), }\AttributeTok{.groups =} \StringTok{"drop"}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{arrange}\NormalTok{(}\FunctionTok{desc}\NormalTok{(hours)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(}\SpecialCharTok{{-}}\NormalTok{group) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{days =}\NormalTok{ hours }\SpecialCharTok{/} \DecValTok{24}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 7,156 x 5
+##    pollutant gap_start           gap_end             hours  days
+##    <chr>     <dttm>              <dttm>              <int> <dbl>
+##  1 NO2       2022-09-30 12:00:00 2022-10-10 17:00:00   246 10.2 
+##  2 SO2       2017-04-24 11:00:00 2017-05-03 14:00:00   220  9.17
+##  3 O3        2023-02-02 23:00:00 2023-02-11 10:00:00   204  8.5 
+##  4 PM10      2024-08-11 16:00:00 2024-08-16 08:00:00   113  4.71
+##  5 PM2.5     2024-08-11 16:00:00 2024-08-16 08:00:00   113  4.71
+##  6 NO2       2024-08-11 19:00:00 2024-08-16 09:00:00   111  4.62
+##  7 SO2       2024-08-11 19:00:00 2024-08-16 09:00:00   111  4.62
+##  8 SO2       2022-09-30 12:00:00 2022-10-04 17:00:00   102  4.25
+##  9 SO2       2018-06-06 01:00:00 2018-06-10 00:00:00    96  4   
+## 10 O3        2024-08-11 19:00:00 2024-08-15 17:00:00    95  3.96
+## # i 7,146 more rows
+\end{verbatim}
+
+13.24\% of our data is missing. The longest gap (sequence of NA values)
+for any pollutant is 10.2 days for NO2.
+
+Next step is to impute the missing values. We use a 2 step approach. -
+Linear interpolation for small gaps (smaller than 8 hours) - Mean for
+same hour of day - for larger gaps, this respects the cycles in the data
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{impute\_missing\_values }\OtherTok{\textless{}{-}} \ControlFlowTok{function}\NormalTok{(x, timestamps, }\AttributeTok{max\_linear =} \DecValTok{8}\NormalTok{, }\AttributeTok{window\_days =} \DecValTok{3}\NormalTok{) \{}
+\NormalTok{  x\_out }\OtherTok{\textless{}{-}}\NormalTok{ zoo}\SpecialCharTok{::}\FunctionTok{na.approx}\NormalTok{(x, }\AttributeTok{na.rm =} \ConstantTok{FALSE}\NormalTok{, }\AttributeTok{maxgap =}\NormalTok{ max\_linear)}
+
+\NormalTok{  hrs }\OtherTok{\textless{}{-}}\NormalTok{ lubridate}\SpecialCharTok{::}\FunctionTok{hour}\NormalTok{(timestamps)}
+\NormalTok{  n   }\OtherTok{\textless{}{-}} \FunctionTok{length}\NormalTok{(x\_out)}
+
+\NormalTok{  global\_hour\_mean }\OtherTok{\textless{}{-}} \FunctionTok{tapply}\NormalTok{(x, hrs, mean, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{)}
+
+  \ControlFlowTok{for}\NormalTok{ (i }\ControlFlowTok{in} \FunctionTok{seq\_len}\NormalTok{(n)) \{}
+    \ControlFlowTok{if}\NormalTok{ (}\SpecialCharTok{!}\FunctionTok{is.na}\NormalTok{(x\_out[i])) }\ControlFlowTok{next}
+
+\NormalTok{    neighbours }\OtherTok{\textless{}{-}} \FunctionTok{max}\NormalTok{(}\DecValTok{1}\NormalTok{, i }\SpecialCharTok{{-}}\NormalTok{ window\_days }\SpecialCharTok{*} \DecValTok{24}\NormalTok{) }\SpecialCharTok{:} \FunctionTok{min}\NormalTok{(n, i }\SpecialCharTok{+}\NormalTok{ window\_days }\SpecialCharTok{*} \DecValTok{24}\NormalTok{)}
+
+\NormalTok{    same\_hour\_and\_known }\OtherTok{\textless{}{-}}\NormalTok{ neighbours[}
+\NormalTok{      hrs[neighbours] }\SpecialCharTok{==}\NormalTok{ hrs[i] }\SpecialCharTok{\&} \SpecialCharTok{!}\FunctionTok{is.na}\NormalTok{(x\_out[neighbours])}
+\NormalTok{    ]}
+
+\NormalTok{    x\_out[i] }\OtherTok{\textless{}{-}} \ControlFlowTok{if}\NormalTok{ (}\FunctionTok{length}\NormalTok{(same\_hour\_and\_known) }\SpecialCharTok{\textgreater{}} \DecValTok{0}\NormalTok{) \{}
+      \FunctionTok{mean}\NormalTok{(x\_out[same\_hour\_and\_known]) }
+\NormalTok{    \} }\ControlFlowTok{else}\NormalTok{ \{}
+\NormalTok{      global\_hour\_mean[[ }\FunctionTok{as.character}\NormalTok{(hrs[i]) ]] }
+\NormalTok{    \}}
+\NormalTok{  \}}
+\NormalTok{  x\_out}
+\NormalTok{\}}
+
+\NormalTok{complete\_air\_data }\OtherTok{\textless{}{-}}\NormalTok{ clean\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\FunctionTok{across}\NormalTok{(}\FunctionTok{c}\NormalTok{(SO2, PM10, O3, NO2, }\StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}}\NormalTok{), }\SpecialCharTok{\textasciitilde{}} 
+    \FunctionTok{pmax}\NormalTok{(}\FunctionTok{impute\_missing\_values}\NormalTok{(.x, Start, }\AttributeTok{max\_linear =} \DecValTok{8}\NormalTok{, }\AttributeTok{window\_days =} \DecValTok{3}\NormalTok{), }\DecValTok{0}\NormalTok{)))}
+
+\NormalTok{complete\_rows }\OtherTok{\textless{}{-}} \FunctionTok{sum}\NormalTok{(}\FunctionTok{complete.cases}\NormalTok{(complete\_air\_data)) }\CommentTok{\# 60845}
+\NormalTok{rows }\OtherTok{\textless{}{-}} \FunctionTok{nrow}\NormalTok{(complete\_air\_data) }\CommentTok{\# 70128}
+\NormalTok{missing\_percentage }\OtherTok{\textless{}{-}}\NormalTok{ (rows }\SpecialCharTok{{-}}\NormalTok{ complete\_rows) }\SpecialCharTok{/}\NormalTok{ rows }\SpecialCharTok{*} \DecValTok{100}
+\NormalTok{missing\_percentage}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 0
+\end{verbatim}
+
+Now, the dataset is complete with no missing values.
+
+\section{Weather Dataset}\label{weather-dataset}
+
+\begin{itemize}
+\tightlist
+\item
+  This dataset comes from
+  \href{https://open-meteo.com/en/docs/historical-weather-api}{Open
+  Meteo Historical Weather}
+\item
+  It contains weather data from year 2017 until the end of 2024
+\item
+  Timezone is stated as GMT+0
+\end{itemize}
+
+Loading the dataset and merging it with pollutants:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{weather\_file\_path }\OtherTok{\textless{}{-}} \FunctionTok{here}\NormalTok{(}\StringTok{"weather"}\NormalTok{, }\StringTok{"open{-}meteo{-}48.12N17.10E163m.csv"}\NormalTok{)}
+
+\CommentTok{\# }\AlertTok{TODO}\CommentTok{: select more variables, reason about which ones}
+\NormalTok{weather\_data }\OtherTok{\textless{}{-}} \FunctionTok{read\_csv}\NormalTok{(weather\_file\_path, }\AttributeTok{skip =} \DecValTok{3}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{rename}\NormalTok{(}
+    \AttributeTok{Start =}\NormalTok{ time,}
+    \AttributeTok{Temperature =} \StringTok{\textasciigrave{}}\AttributeTok{temperature\_2m (°C)}\StringTok{\textasciigrave{}}\NormalTok{,}
+    \AttributeTok{Rain =} \StringTok{\textasciigrave{}}\AttributeTok{rain (mm)}\StringTok{\textasciigrave{}}\NormalTok{,}
+    \AttributeTok{Wind\_Speed =} \StringTok{\textasciigrave{}}\AttributeTok{wind\_speed\_10m (km/h)}\StringTok{\textasciigrave{}}
+\NormalTok{  ) }\SpecialCharTok{\%\textgreater{}\%}
+  \CommentTok{\#select(Start, Temperature, Rain, Wind\_Speed) \%\textgreater{}\%}
+  \FunctionTok{filter}\NormalTok{(}\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textgreater{}=} \DecValTok{2017}\NormalTok{, }\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textless{}=} \DecValTok{2024}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Rows: 78912 Columns: 31
+## -- Column specification --------------------------------------------------------
+## Delimiter: ","
+## dbl  (30): temperature_2m (°C), relative_humidity_2m (%), dew_point_2m (°C),...
+## dttm  (1): time
+## 
+## i Use `spec()` to retrieve the full column specification for this data.
+## i Specify the column types or set `show_col_types = FALSE` to quiet this message.
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_rows\_weather }\OtherTok{\textless{}{-}} \FunctionTok{sum}\NormalTok{(}\FunctionTok{complete.cases}\NormalTok{(weather\_data))}
+\NormalTok{rows\_weather }\OtherTok{\textless{}{-}} \FunctionTok{nrow}\NormalTok{(weather\_data)}
+\NormalTok{missing\_percentage\_weather }\OtherTok{\textless{}{-}}\NormalTok{ (rows\_weather }\SpecialCharTok{{-}}\NormalTok{ complete\_rows\_weather) }\SpecialCharTok{/}\NormalTok{ rows\_weather }\SpecialCharTok{*} \DecValTok{100}
+\NormalTok{missing\_percentage\_weather}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## [1] 0
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\OtherTok{\textless{}{-}}\NormalTok{ complete\_air\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{inner\_join}\NormalTok{(weather\_data, }\AttributeTok{by =} \StringTok{"Start"}\NormalTok{)}
+
+\FunctionTok{glimpse}\NormalTok{(complete\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Rows: 70,128
+## Columns: 36
+## $ Start                                <dttm> 2017-01-01 00:00:00, 2017-01-01 ~
+## $ SO2                                  <dbl> 7.385760, 5.626700, 2.493750, 2.0~
+## $ O3                                   <dbl> 3.4882, 4.1040, 3.0622, 3.1967, 3~
+## $ PM10                                 <dbl> 222.950, 195.860, 145.570, 131.99~
+## $ NO2                                  <dbl> 26.01537, 45.55530, 38.10420, 31.~
+## $ PM2.5                                <dbl> 221.790, 201.800, 156.220, 142.55~
+## $ Temperature                          <dbl> -5.0, -6.6, -6.4, -6.3, -6.4, -7.~
+## $ `relative_humidity_2m (%)`           <dbl> 84, 85, 85, 85, 85, 88, 91, 95, 9~
+## $ `dew_point_2m (°C)`                  <dbl> -7.3, -8.6, -8.5, -8.5, -8.6, -8.~
+## $ `apparent_temperature (°C)`          <dbl> -9.0, -11.1, -10.8, -10.8, -10.7,~
+## $ Rain                                 <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `precipitation (mm)`                 <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `snow_depth (m)`                     <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `snowfall (cm)`                      <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `weather_code (wmo code)`            <dbl> 3, 0, 0, 0, 0, 0, 1, 1, 3, 1, 0, ~
+## $ `pressure_msl (hPa)`                 <dbl> 1029.2, 1029.2, 1028.6, 1027.9, 1~
+## $ `cloud_cover (%)`                    <dbl> 83, 0, 0, 0, 0, 1, 23, 37, 91, 35~
+## $ `surface_pressure (hPa)`             <dbl> 1008.1, 1008.0, 1007.4, 1006.7, 1~
+## $ `cloud_cover_low (%)`                <dbl> 0, 0, 0, 0, 0, 1, 23, 37, 91, 33,~
+## $ `cloud_cover_mid (%)`                <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `cloud_cover_high (%)`               <dbl> 83, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0,~
+## $ `et0_fao_evapotranspiration (mm)`    <dbl> 0.00, 0.00, 0.00, 0.00, 0.00, 0.0~
+## $ `vapour_pressure_deficit (kPa)`      <dbl> 0.07, 0.06, 0.06, 0.06, 0.06, 0.0~
+## $ Wind_Speed                           <dbl> 6.6, 9.9, 8.9, 9.0, 8.0, 7.8, 5.5~
+## $ `wind_speed_100m (km/h)`             <dbl> 16.2, 12.7, 9.4, 8.7, 7.2, 5.4, 8~
+## $ `wind_direction_10m (°)`             <dbl> 315, 327, 346, 2, 36, 77, 101, 96~
+## $ `wind_gusts_10m (km/h)`              <dbl> 11.9, 13.7, 13.0, 11.2, 11.5, 10.~
+## $ `wind_direction_100m (°)`            <dbl> 307, 315, 320, 330, 354, 53, 97, ~
+## $ `soil_temperature_0_to_7cm (°C)`     <dbl> -2.7, -4.4, -4.3, -4.3, -4.3, -4.~
+## $ `soil_temperature_7_to_28cm (°C)`    <dbl> 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1~
+## $ `soil_temperature_28_to_100cm (°C)`  <dbl> 3.5, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4~
+## $ `soil_temperature_100_to_255cm (°C)` <dbl> 8.6, 8.6, 8.6, 8.6, 8.6, 8.6, 8.6~
+## $ `soil_moisture_7_to_28cm (m³/m³)`    <dbl> 0.302, 0.301, 0.301, 0.301, 0.301~
+## $ `soil_moisture_0_to_7cm (m³/m³)`     <dbl> 0.306, 0.306, 0.306, 0.306, 0.306~
+## $ `soil_moisture_28_to_100cm (m³/m³)`  <dbl> 0.249, 0.247, 0.247, 0.247, 0.247~
+## $ `soil_moisture_100_to_255cm (m³/m³)` <dbl> 0.224, 0.224, 0.224, 0.224, 0.224~
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{summary}\NormalTok{(complete\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+##      Start                          SO2                O3        
+##  Min.   :2017-01-01 00:00:00   Min.   :  0.000   Min.   :  0.00  
+##  1st Qu.:2019-01-01 11:45:00   1st Qu.:  1.265   1st Qu.: 26.44  
+##  Median :2020-12-31 23:30:00   Median :  2.872   Median : 49.19  
+##  Mean   :2020-12-31 23:30:00   Mean   :  4.114   Mean   : 51.09  
+##  3rd Qu.:2023-01-01 11:15:00   3rd Qu.:  5.631   3rd Qu.: 71.20  
+##  Max.   :2024-12-31 23:00:00   Max.   :657.845   Max.   :230.44  
+##       PM10               NO2               PM2.5           Temperature    
+##  Min.   :  0.0026   Min.   :  0.0109   Min.   :  0.0028   Min.   :-12.20  
+##  1st Qu.: 10.2970   1st Qu.:  8.2976   1st Qu.:  5.4738   1st Qu.:  4.70  
+##  Median : 16.9820   Median : 14.2145   Median : 10.1520   Median : 11.60  
+##  Mean   : 19.8067   Mean   : 18.1969   Mean   : 13.3501   Mean   : 11.88  
+##  3rd Qu.: 25.6663   3rd Qu.: 23.7346   3rd Qu.: 17.6580   3rd Qu.: 18.90  
+##  Max.   :394.6200   Max.   :147.1190   Max.   :292.5100   Max.   : 37.00  
+##  relative_humidity_2m (%) dew_point_2m (°C) apparent_temperature (°C)
+##  Min.   : 15.00           Min.   :-21.000   Min.   :-18.700          
+##  1st Qu.: 59.00           1st Qu.:  0.900   1st Qu.:  0.600          
+##  Median : 74.00           Median :  6.400   Median :  8.700          
+##  Mean   : 71.61           Mean   :  6.296   Mean   :  9.452          
+##  3rd Qu.: 87.00           3rd Qu.: 12.100   3rd Qu.: 17.900          
+##  Max.   :100.00           Max.   : 23.800   Max.   : 37.500          
+##       Rain          precipitation (mm) snow_depth (m)     snowfall (cm)     
+##  Min.   : 0.00000   Min.   : 0.00000   Min.   :0.000000   Min.   :0.000000  
+##  1st Qu.: 0.00000   1st Qu.: 0.00000   1st Qu.:0.000000   1st Qu.:0.000000  
+##  Median : 0.00000   Median : 0.00000   Median :0.000000   Median :0.000000  
+##  Mean   : 0.06771   Mean   : 0.07233   Mean   :0.003594   Mean   :0.003247  
+##  3rd Qu.: 0.00000   3rd Qu.: 0.00000   3rd Qu.:0.000000   3rd Qu.:0.000000  
+##  Max.   :19.50000   Max.   :19.50000   Max.   :0.170000   Max.   :1.890000  
+##  weather_code (wmo code) pressure_msl (hPa) cloud_cover (%) 
+##  Min.   : 0.000          Min.   : 985.6     Min.   :  0.00  
+##  1st Qu.: 0.000          1st Qu.:1012.0     1st Qu.: 15.00  
+##  Median : 2.000          Median :1016.8     Median : 76.00  
+##  Mean   : 8.687          Mean   :1017.1     Mean   : 59.77  
+##  3rd Qu.: 3.000          3rd Qu.:1022.2     3rd Qu.:100.00  
+##  Max.   :75.000          Max.   :1047.5     Max.   :100.00  
+##  surface_pressure (hPa) cloud_cover_low (%) cloud_cover_mid (%)
+##  Min.   : 966.1         Min.   :  0.00      Min.   :  0.00     
+##  1st Qu.: 992.7         1st Qu.:  0.00      1st Qu.:  0.00     
+##  Median : 997.4         Median :  1.00      Median : 10.00     
+##  Mean   : 997.4         Mean   : 22.19      Mean   : 31.66     
+##  3rd Qu.:1002.3         3rd Qu.: 28.00      3rd Qu.: 65.00     
+##  Max.   :1026.3         Max.   :100.00      Max.   :100.00     
+##  cloud_cover_high (%) et0_fao_evapotranspiration (mm)
+##  Min.   :  0.00       Min.   :0.000                  
+##  1st Qu.:  0.00       1st Qu.:0.010                  
+##  Median : 20.00       Median :0.040                  
+##  Mean   : 40.53       Mean   :0.108                  
+##  3rd Qu.: 92.00       3rd Qu.:0.150                  
+##  Max.   :100.00       Max.   :0.790                  
+##  vapour_pressure_deficit (kPa)   Wind_Speed    wind_speed_100m (km/h)
+##  Min.   :0.0000                Min.   : 0.00   Min.   : 0.0          
+##  1st Qu.:0.1300                1st Qu.: 8.00   1st Qu.:14.1          
+##  Median :0.3200                Median :12.10   Median :21.4          
+##  Mean   :0.5528                Mean   :13.18   Mean   :21.8          
+##  3rd Qu.:0.7400                3rd Qu.:17.40   3rd Qu.:28.6          
+##  Max.   :4.9000                Max.   :48.60   Max.   :74.8          
+##  wind_direction_10m (°) wind_gusts_10m (km/h) wind_direction_100m (°)
+##  Min.   :  1.0          Min.   :  1.40        Min.   :  0.0          
+##  1st Qu.:126.0          1st Qu.: 16.20        1st Qu.:132.0          
+##  Median :270.0          Median : 23.80        Median :250.0          
+##  Mean   :221.5          Mean   : 25.65        Mean   :221.3          
+##  3rd Qu.:316.0          3rd Qu.: 33.50        3rd Qu.:317.2          
+##  Max.   :360.0          Max.   :104.40        Max.   :360.0          
+##  soil_temperature_0_to_7cm (°C) soil_temperature_7_to_28cm (°C)
+##  Min.   :-6.50                  Min.   :-1.80                  
+##  1st Qu.: 4.80                  1st Qu.: 5.40                  
+##  Median :11.90                  Median :12.30                  
+##  Mean   :12.48                  Mean   :12.47                  
+##  3rd Qu.:19.60                  3rd Qu.:19.60                  
+##  Max.   :38.30                  Max.   :29.50                  
+##  soil_temperature_28_to_100cm (°C) soil_temperature_100_to_255cm (°C)
+##  Min.   : 0.60                     Min.   : 3.20                     
+##  1st Qu.: 6.30                     1st Qu.: 7.70                     
+##  Median :12.10                     Median :11.90                     
+##  Mean   :12.32                     Mean   :12.12                     
+##  3rd Qu.:18.50                     3rd Qu.:16.60                     
+##  Max.   :24.00                     Max.   :20.30                     
+##  soil_moisture_7_to_28cm (m³/m³) soil_moisture_0_to_7cm (m³/m³)
+##  Min.   :0.1130                  Min.   :0.0950                
+##  1st Qu.:0.1980                  1st Qu.:0.2150                
+##  Median :0.2590                  Median :0.2880                
+##  Mean   :0.2644                  Mean   :0.2798                
+##  3rd Qu.:0.3340                  3rd Qu.:0.3450                
+##  Max.   :0.4380                  Max.   :0.4390                
+##  soil_moisture_28_to_100cm (m³/m³) soil_moisture_100_to_255cm (m³/m³)
+##  Min.   :0.069                     Min.   :0.2110                    
+##  1st Qu.:0.178                     1st Qu.:0.2210                    
+##  Median :0.218                     Median :0.2270                    
+##  Mean   :0.228                     Mean   :0.2324                    
+##  3rd Qu.:0.272                     3rd Qu.:0.2440                    
+##  Max.   :0.381                     Max.   :0.2730
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{has\_gaps}\NormalTok{(complete\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 1 x 1
+##   .gaps
+##   <lgl>
+## 1 FALSE
+\end{verbatim}
+
+The open meteo dataset has no missing values. The merge has not changed
+the row count, and our time series has no gaps. Currently, we have 36
+columns.
+
+Next step is to add AQI.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# AQI levels and colors}
+\NormalTok{aqi\_levels }\OtherTok{\textless{}{-}} \FunctionTok{c}\NormalTok{(}\StringTok{"Good"}\NormalTok{, }\StringTok{"Fair"}\NormalTok{, }\StringTok{"Moderate"}\NormalTok{, }\StringTok{"Poor"}\NormalTok{, }\StringTok{"Very poor"}\NormalTok{, }\StringTok{"Extremely poor"}\NormalTok{)}
+\NormalTok{aqi\_colors }\OtherTok{\textless{}{-}} \FunctionTok{c}\NormalTok{(}\StringTok{"Good"}           \OtherTok{=} \StringTok{"\#50f0e6"}\NormalTok{,}
+                \StringTok{"Fair"}           \OtherTok{=} \StringTok{"\#50ccaa"}\NormalTok{,}
+                \StringTok{"Moderate"}       \OtherTok{=} \StringTok{"\#f0e641"}\NormalTok{,}
+                \StringTok{"Poor"}           \OtherTok{=} \StringTok{"\#ff5050"}\NormalTok{,}
+                \StringTok{"Very poor"}      \OtherTok{=} \StringTok{"\#960032"}\NormalTok{,}
+                \StringTok{"Extremely poor"} \OtherTok{=} \StringTok{"\#7d2181"}\NormalTok{)}
+
+\DocumentationTok{\#\# European AQI}
+\NormalTok{add\_eaqi }\OtherTok{\textless{}{-}} \ControlFlowTok{function}\NormalTok{(df) \{}
+\NormalTok{  df }\SpecialCharTok{\%\textgreater{}\%}
+    \FunctionTok{mutate}\NormalTok{(}
+      \AttributeTok{AQI\_PM2.5 =} \FunctionTok{case\_when}\NormalTok{(}
+        \StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textless{}=}   \DecValTok{5} \SpecialCharTok{\textasciitilde{}} \DecValTok{1}\DataTypeTok{L}\NormalTok{, }\StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textless{}=}  \DecValTok{15} \SpecialCharTok{\textasciitilde{}} \DecValTok{2}\DataTypeTok{L}\NormalTok{, }\StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textless{}=}  \DecValTok{50} \SpecialCharTok{\textasciitilde{}} \DecValTok{3}\DataTypeTok{L}\NormalTok{,}
+        \StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textless{}=}  \DecValTok{90} \SpecialCharTok{\textasciitilde{}} \DecValTok{4}\DataTypeTok{L}\NormalTok{, }\StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textless{}=} \DecValTok{140} \SpecialCharTok{\textasciitilde{}} \DecValTok{5}\DataTypeTok{L}\NormalTok{, }\StringTok{\textasciigrave{}}\AttributeTok{PM2.5}\StringTok{\textasciigrave{}} \SpecialCharTok{\textgreater{}}  \DecValTok{140} \SpecialCharTok{\textasciitilde{}} \DecValTok{6}\DataTypeTok{L}
+\NormalTok{      ),}
+      \AttributeTok{AQI\_PM10 =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{        PM10 }\SpecialCharTok{\textless{}=}  \DecValTok{15} \SpecialCharTok{\textasciitilde{}} \DecValTok{1}\DataTypeTok{L}\NormalTok{, PM10 }\SpecialCharTok{\textless{}=}  \DecValTok{45} \SpecialCharTok{\textasciitilde{}} \DecValTok{2}\DataTypeTok{L}\NormalTok{, PM10 }\SpecialCharTok{\textless{}=} \DecValTok{120} \SpecialCharTok{\textasciitilde{}} \DecValTok{3}\DataTypeTok{L}\NormalTok{,}
+\NormalTok{        PM10 }\SpecialCharTok{\textless{}=} \DecValTok{195} \SpecialCharTok{\textasciitilde{}} \DecValTok{4}\DataTypeTok{L}\NormalTok{, PM10 }\SpecialCharTok{\textless{}=} \DecValTok{270} \SpecialCharTok{\textasciitilde{}} \DecValTok{5}\DataTypeTok{L}\NormalTok{, PM10 }\SpecialCharTok{\textgreater{}}  \DecValTok{270} \SpecialCharTok{\textasciitilde{}} \DecValTok{6}\DataTypeTok{L}
+\NormalTok{      ),}
+      \AttributeTok{AQI\_O3 =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{        O3 }\SpecialCharTok{\textless{}=}  \DecValTok{60} \SpecialCharTok{\textasciitilde{}} \DecValTok{1}\DataTypeTok{L}\NormalTok{, O3 }\SpecialCharTok{\textless{}=} \DecValTok{100} \SpecialCharTok{\textasciitilde{}} \DecValTok{2}\DataTypeTok{L}\NormalTok{, O3 }\SpecialCharTok{\textless{}=} \DecValTok{120} \SpecialCharTok{\textasciitilde{}} \DecValTok{3}\DataTypeTok{L}\NormalTok{,}
+\NormalTok{        O3 }\SpecialCharTok{\textless{}=} \DecValTok{160} \SpecialCharTok{\textasciitilde{}} \DecValTok{4}\DataTypeTok{L}\NormalTok{, O3 }\SpecialCharTok{\textless{}=} \DecValTok{180} \SpecialCharTok{\textasciitilde{}} \DecValTok{5}\DataTypeTok{L}\NormalTok{, O3 }\SpecialCharTok{\textgreater{}}  \DecValTok{180} \SpecialCharTok{\textasciitilde{}} \DecValTok{6}\DataTypeTok{L}
+\NormalTok{      ),}
+      \AttributeTok{AQI\_NO2 =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{        NO2 }\SpecialCharTok{\textless{}=}  \DecValTok{10} \SpecialCharTok{\textasciitilde{}} \DecValTok{1}\DataTypeTok{L}\NormalTok{, NO2 }\SpecialCharTok{\textless{}=}  \DecValTok{25} \SpecialCharTok{\textasciitilde{}} \DecValTok{2}\DataTypeTok{L}\NormalTok{, NO2 }\SpecialCharTok{\textless{}=}  \DecValTok{60} \SpecialCharTok{\textasciitilde{}} \DecValTok{3}\DataTypeTok{L}\NormalTok{,}
+\NormalTok{        NO2 }\SpecialCharTok{\textless{}=} \DecValTok{100} \SpecialCharTok{\textasciitilde{}} \DecValTok{4}\DataTypeTok{L}\NormalTok{, NO2 }\SpecialCharTok{\textless{}=} \DecValTok{150} \SpecialCharTok{\textasciitilde{}} \DecValTok{5}\DataTypeTok{L}\NormalTok{, NO2 }\SpecialCharTok{\textgreater{}}  \DecValTok{150} \SpecialCharTok{\textasciitilde{}} \DecValTok{6}\DataTypeTok{L}
+\NormalTok{      ),}
+      \AttributeTok{AQI\_SO2 =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{        SO2 }\SpecialCharTok{\textless{}=}  \DecValTok{20} \SpecialCharTok{\textasciitilde{}} \DecValTok{1}\DataTypeTok{L}\NormalTok{, SO2 }\SpecialCharTok{\textless{}=}  \DecValTok{40} \SpecialCharTok{\textasciitilde{}} \DecValTok{2}\DataTypeTok{L}\NormalTok{, SO2 }\SpecialCharTok{\textless{}=} \DecValTok{125} \SpecialCharTok{\textasciitilde{}} \DecValTok{3}\DataTypeTok{L}\NormalTok{,}
+\NormalTok{        SO2 }\SpecialCharTok{\textless{}=} \DecValTok{190} \SpecialCharTok{\textasciitilde{}} \DecValTok{4}\DataTypeTok{L}\NormalTok{, SO2 }\SpecialCharTok{\textless{}=} \DecValTok{275} \SpecialCharTok{\textasciitilde{}} \DecValTok{5}\DataTypeTok{L}\NormalTok{, SO2 }\SpecialCharTok{\textgreater{}}  \DecValTok{275} \SpecialCharTok{\textasciitilde{}} \DecValTok{6}\DataTypeTok{L}
+\NormalTok{      ),}
+      \AttributeTok{AQI =} \FunctionTok{pmax}\NormalTok{(AQI\_PM2}\FloatTok{.5}\NormalTok{, AQI\_PM10, AQI\_O3, AQI\_NO2, AQI\_SO2, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+      \AttributeTok{AQI\_Label =} \FunctionTok{factor}\NormalTok{(}
+        \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{1}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{1}\NormalTok{],}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{2}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{2}\NormalTok{],}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{3}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{3}\NormalTok{],}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{4}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{4}\NormalTok{],}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{5}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{5}\NormalTok{],}
+\NormalTok{          AQI }\SpecialCharTok{==} \DecValTok{6}\DataTypeTok{L} \SpecialCharTok{\textasciitilde{}}\NormalTok{ aqi\_levels[}\DecValTok{6}\NormalTok{],}
+\NormalTok{        ),}
+        \AttributeTok{levels =}\NormalTok{ aqi\_levels,}
+        \AttributeTok{ordered =} \ConstantTok{TRUE}
+\NormalTok{      )}
+\NormalTok{    )}
+\NormalTok{\}}
+
+\NormalTok{complete\_data }\OtherTok{\textless{}{-}} \FunctionTok{add\_eaqi}\NormalTok{(complete\_data)}
+\FunctionTok{glimpse}\NormalTok{(complete\_data)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Rows: 70,128
+## Columns: 43
+## $ Start                                <dttm> 2017-01-01 00:00:00, 2017-01-01 ~
+## $ SO2                                  <dbl> 7.385760, 5.626700, 2.493750, 2.0~
+## $ O3                                   <dbl> 3.4882, 4.1040, 3.0622, 3.1967, 3~
+## $ PM10                                 <dbl> 222.950, 195.860, 145.570, 131.99~
+## $ NO2                                  <dbl> 26.01537, 45.55530, 38.10420, 31.~
+## $ PM2.5                                <dbl> 221.790, 201.800, 156.220, 142.55~
+## $ Temperature                          <dbl> -5.0, -6.6, -6.4, -6.3, -6.4, -7.~
+## $ `relative_humidity_2m (%)`           <dbl> 84, 85, 85, 85, 85, 88, 91, 95, 9~
+## $ `dew_point_2m (°C)`                  <dbl> -7.3, -8.6, -8.5, -8.5, -8.6, -8.~
+## $ `apparent_temperature (°C)`          <dbl> -9.0, -11.1, -10.8, -10.8, -10.7,~
+## $ Rain                                 <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `precipitation (mm)`                 <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `snow_depth (m)`                     <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `snowfall (cm)`                      <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `weather_code (wmo code)`            <dbl> 3, 0, 0, 0, 0, 0, 1, 1, 3, 1, 0, ~
+## $ `pressure_msl (hPa)`                 <dbl> 1029.2, 1029.2, 1028.6, 1027.9, 1~
+## $ `cloud_cover (%)`                    <dbl> 83, 0, 0, 0, 0, 1, 23, 37, 91, 35~
+## $ `surface_pressure (hPa)`             <dbl> 1008.1, 1008.0, 1007.4, 1006.7, 1~
+## $ `cloud_cover_low (%)`                <dbl> 0, 0, 0, 0, 0, 1, 23, 37, 91, 33,~
+## $ `cloud_cover_mid (%)`                <dbl> 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ~
+## $ `cloud_cover_high (%)`               <dbl> 83, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0,~
+## $ `et0_fao_evapotranspiration (mm)`    <dbl> 0.00, 0.00, 0.00, 0.00, 0.00, 0.0~
+## $ `vapour_pressure_deficit (kPa)`      <dbl> 0.07, 0.06, 0.06, 0.06, 0.06, 0.0~
+## $ Wind_Speed                           <dbl> 6.6, 9.9, 8.9, 9.0, 8.0, 7.8, 5.5~
+## $ `wind_speed_100m (km/h)`             <dbl> 16.2, 12.7, 9.4, 8.7, 7.2, 5.4, 8~
+## $ `wind_direction_10m (°)`             <dbl> 315, 327, 346, 2, 36, 77, 101, 96~
+## $ `wind_gusts_10m (km/h)`              <dbl> 11.9, 13.7, 13.0, 11.2, 11.5, 10.~
+## $ `wind_direction_100m (°)`            <dbl> 307, 315, 320, 330, 354, 53, 97, ~
+## $ `soil_temperature_0_to_7cm (°C)`     <dbl> -2.7, -4.4, -4.3, -4.3, -4.3, -4.~
+## $ `soil_temperature_7_to_28cm (°C)`    <dbl> 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1~
+## $ `soil_temperature_28_to_100cm (°C)`  <dbl> 3.5, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4~
+## $ `soil_temperature_100_to_255cm (°C)` <dbl> 8.6, 8.6, 8.6, 8.6, 8.6, 8.6, 8.6~
+## $ `soil_moisture_7_to_28cm (m³/m³)`    <dbl> 0.302, 0.301, 0.301, 0.301, 0.301~
+## $ `soil_moisture_0_to_7cm (m³/m³)`     <dbl> 0.306, 0.306, 0.306, 0.306, 0.306~
+## $ `soil_moisture_28_to_100cm (m³/m³)`  <dbl> 0.249, 0.247, 0.247, 0.247, 0.247~
+## $ `soil_moisture_100_to_255cm (m³/m³)` <dbl> 0.224, 0.224, 0.224, 0.224, 0.224~
+## $ AQI_PM2.5                            <int> 6, 6, 6, 6, 5, 4, 4, 4, 4, 4, 4, ~
+## $ AQI_PM10                             <int> 5, 5, 4, 4, 3, 3, 3, 3, 3, 3, 3, ~
+## $ AQI_O3                               <int> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ~
+## $ AQI_NO2                              <int> 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, ~
+## $ AQI_SO2                              <int> 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ~
+## $ AQI                                  <int> 6, 6, 6, 6, 5, 4, 4, 4, 4, 4, 4, ~
+## $ AQI_Label                            <ord> Extremely poor, Extremely poor, E~
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%} 
+  \FunctionTok{select}\NormalTok{(AQI, AQI\_SO2, AQI\_NO2, AQI\_O3, AQI\_PM10, AQI\_PM2}\FloatTok{.5}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{AQI\_poll =} \FunctionTok{case\_when}\NormalTok{(}
+\NormalTok{    AQI }\SpecialCharTok{==}\NormalTok{ AQI\_PM2}\FloatTok{.5} \SpecialCharTok{\textasciitilde{}} \StringTok{"AQI\_PM2.5"}\NormalTok{,}
+\NormalTok{    AQI }\SpecialCharTok{==}\NormalTok{ AQI\_PM10 }\SpecialCharTok{\textasciitilde{}} \StringTok{"AQI\_PM10"}\NormalTok{,}
+\NormalTok{    AQI }\SpecialCharTok{==}\NormalTok{ AQI\_O3 }\SpecialCharTok{\textasciitilde{}} \StringTok{"AQI\_O3"}\NormalTok{,}
+\NormalTok{    AQI }\SpecialCharTok{==}\NormalTok{ AQI\_NO2 }\SpecialCharTok{\textasciitilde{}} \StringTok{"AQI\_NO2"}\NormalTok{,}
+\NormalTok{    AQI }\SpecialCharTok{==}\NormalTok{ AQI\_SO2 }\SpecialCharTok{\textasciitilde{}} \StringTok{"AQI\_SO2"}\NormalTok{,}
+\NormalTok{  )) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(AQI\_poll) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}\AttributeTok{count =} \FunctionTok{n}\NormalTok{())}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tsibble: 70,128 x 3 [1h] <UTC>
+## # Key:       AQI_poll [5]
+##    AQI_poll Start               count
+##    <chr>    <dttm>              <int>
+##  1 AQI_NO2  2017-01-03 07:00:00     1
+##  2 AQI_NO2  2017-01-03 08:00:00     1
+##  3 AQI_NO2  2017-01-03 11:00:00     1
+##  4 AQI_NO2  2017-01-03 17:00:00     1
+##  5 AQI_NO2  2017-01-03 18:00:00     1
+##  6 AQI_NO2  2017-01-03 19:00:00     1
+##  7 AQI_NO2  2017-01-03 20:00:00     1
+##  8 AQI_NO2  2017-01-03 23:00:00     1
+##  9 AQI_NO2  2017-01-04 00:00:00     1
+## 10 AQI_NO2  2017-01-04 01:00:00     1
+## # i 70,118 more rows
+\end{verbatim}
+
+\section{EDA}\label{eda}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{theme\_set}\NormalTok{(}\FunctionTok{theme\_bw}\NormalTok{() }\SpecialCharTok{+} 
+  \FunctionTok{theme}\NormalTok{(}\AttributeTok{panel.grid.major =} \FunctionTok{element\_blank}\NormalTok{(), }
+        \AttributeTok{panel.grid.minor =} \FunctionTok{element\_blank}\NormalTok{(),}
+        \AttributeTok{panel.border =} \FunctionTok{element\_blank}\NormalTok{(),}
+        \AttributeTok{axis.line =} \FunctionTok{element\_line}\NormalTok{(}\AttributeTok{colour =} \StringTok{"grey"}\NormalTok{))) }
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{AQI Distribution}\label{aqi-distribution}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{count}\NormalTok{(AQI\_Label) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{percent =}\NormalTok{ n }\SpecialCharTok{/} \FunctionTok{sum}\NormalTok{(n) }\SpecialCharTok{*} \DecValTok{100}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{ggplot}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{x =}\NormalTok{ AQI\_Label, }\AttributeTok{y =}\NormalTok{ n, }\AttributeTok{fill =}\NormalTok{ AQI\_Label)) }\SpecialCharTok{+}
+  \FunctionTok{geom\_col}\NormalTok{() }\SpecialCharTok{+}
+  \FunctionTok{geom\_text}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{label =} \FunctionTok{sprintf}\NormalTok{(}\StringTok{"\%.1f\%\%"}\NormalTok{, percent)), }\AttributeTok{vjust =} \SpecialCharTok{{-}}\FloatTok{0.5}\NormalTok{, }\AttributeTok{size =} \FloatTok{3.5}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_fill\_manual}\NormalTok{(}\AttributeTok{values =}\NormalTok{ aqi\_colors) }\SpecialCharTok{+}
+  \FunctionTok{scale\_y\_continuous}\NormalTok{(}\AttributeTok{expand =} \FunctionTok{expansion}\NormalTok{(}\AttributeTok{mult =} \FunctionTok{c}\NormalTok{(}\DecValTok{0}\NormalTok{, }\FloatTok{0.1}\NormalTok{))) }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"AQI Distribution (2017–2024)"}\NormalTok{, }\AttributeTok{x =} \StringTok{"AQI"}\NormalTok{, }\AttributeTok{y =} \StringTok{"Count"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-13-1.pdf}}
+
+\subsection{Decomposition and
+seasonality}\label{decomposition-and-seasonality}
+
+STL decomposition of AQI:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{model}\NormalTok{(}\FunctionTok{STL}\NormalTok{(AQI }\SpecialCharTok{\textasciitilde{}} \FunctionTok{trend}\NormalTok{() }\SpecialCharTok{+} \FunctionTok{season}\NormalTok{(}\StringTok{"1 year"}\NormalTok{), }\AttributeTok{robust =} \ConstantTok{TRUE}\NormalTok{)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{components}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{autoplot}\NormalTok{(}\AttributeTok{linewidth =} \FloatTok{0.001}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"STL Decomposition of AQI"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Time"}\NormalTok{, }\AttributeTok{y =} \StringTok{"AQI"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-14-1.pdf}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{noise\_season\_year }\OtherTok{\textless{}{-}}\NormalTok{ complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{model}\NormalTok{(}\FunctionTok{STL}\NormalTok{(AQI }\SpecialCharTok{\textasciitilde{}} \FunctionTok{trend}\NormalTok{() }\SpecialCharTok{+} \FunctionTok{season}\NormalTok{(}\StringTok{"1 year"}\NormalTok{), }\AttributeTok{robust =} \ConstantTok{TRUE}\NormalTok{)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{components}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{monthly\_aqi }\OtherTok{\textless{}{-}}\NormalTok{ complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{Month =} \FunctionTok{yearmonth}\NormalTok{(Start)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(Month) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}\AttributeTok{AQI =} \FunctionTok{mean}\NormalTok{(AQI), }\AttributeTok{.groups =} \StringTok{"drop"}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tsibble}\NormalTok{(}\AttributeTok{index =}\NormalTok{ Month)}
+
+\NormalTok{monthly\_aqi }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{gg\_season}\NormalTok{(AQI, }\AttributeTok{labels =} \StringTok{"right"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_y\_continuous}\NormalTok{(}\AttributeTok{breaks =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{,}
+                     \AttributeTok{labels =} \FunctionTok{c}\NormalTok{(}\StringTok{"Good"}\NormalTok{, }\StringTok{"Fair"}\NormalTok{, }\StringTok{"Moderate"}\NormalTok{, }\StringTok{"Poor"}\NormalTok{, }\StringTok{"Very poor"}\NormalTok{, }\StringTok{"Extremely poor"}\NormalTok{),}
+                     \AttributeTok{limits =} \FunctionTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{, }\DecValTok{6}\NormalTok{)) }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{y =} \StringTok{"Mean Monthly AQI"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Month"}\NormalTok{,}
+       \AttributeTok{title =} \StringTok{"Seasonal plot {-} monthly AQI by year (2017–2024)"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-15-1.pdf}}
+
+The seasonal plot clearly shows a \textbf{winter peak (Nov--Mar)} and
+\textbf{summer trough (May--Sep)} consistent across all years, driven
+primarily by PM2.5 from residential heating.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{hourly\_aqi }\OtherTok{\textless{}{-}}\NormalTok{ complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{Hour =} \FunctionTok{hour}\NormalTok{(Start)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(Hour) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}
+    \AttributeTok{Mean  =} \FunctionTok{mean}\NormalTok{(AQI, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+    \AttributeTok{Q25   =} \FunctionTok{quantile}\NormalTok{(AQI, }\FloatTok{0.25}\NormalTok{, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+    \AttributeTok{Q75   =} \FunctionTok{quantile}\NormalTok{(AQI, }\FloatTok{0.75}\NormalTok{, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{),}
+    \AttributeTok{.groups =} \StringTok{"drop"}
+\NormalTok{  )}
+
+\FunctionTok{ggplot}\NormalTok{(hourly\_aqi, }\FunctionTok{aes}\NormalTok{(}\AttributeTok{x =}\NormalTok{ Hour)) }\SpecialCharTok{+}
+  \FunctionTok{geom\_ribbon}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{ymin =}\NormalTok{ Q25, }\AttributeTok{ymax =}\NormalTok{ Q75), }\AttributeTok{fill =} \StringTok{"steelblue"}\NormalTok{, }\AttributeTok{alpha =} \FloatTok{0.25}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{geom\_line}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{y =}\NormalTok{ Mean), }\AttributeTok{color =} \StringTok{"steelblue"}\NormalTok{, }\AttributeTok{linewidth =} \DecValTok{1}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{geom\_point}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{y =}\NormalTok{ Mean), }\AttributeTok{color =} \StringTok{"steelblue"}\NormalTok{, }\AttributeTok{size =} \DecValTok{2}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_x\_continuous}\NormalTok{(}\AttributeTok{breaks =} \DecValTok{0}\SpecialCharTok{:}\DecValTok{23}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_y\_continuous}\NormalTok{(}
+    \AttributeTok{breaks =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{,}
+    \AttributeTok{labels =} \FunctionTok{c}\NormalTok{(}\StringTok{"Good"}\NormalTok{, }\StringTok{"Fair"}\NormalTok{, }\StringTok{"Moderate"}\NormalTok{, }\StringTok{"Poor"}\NormalTok{, }\StringTok{"Very poor"}\NormalTok{, }\StringTok{"Extremely poor"}\NormalTok{),}
+    \AttributeTok{limits =} \FunctionTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{, }\DecValTok{6}\NormalTok{)}
+\NormalTok{  ) }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}
+    \AttributeTok{title =} \StringTok{"Diurnal AQI pattern (hour of day, 2017–2024)"}\NormalTok{,}
+    \AttributeTok{subtitle =} \StringTok{"Line = mean, ribbon = IQR (25th–75th percentile)"}\NormalTok{,}
+    \AttributeTok{x =} \StringTok{"Hour of day"}\NormalTok{, }\AttributeTok{y =} \StringTok{"AQI level"}
+\NormalTok{  ) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-16-1.pdf}}
+
+The diurnal plot reveals two daily peaks: a \textbf{morning rush
+(7--9h)} and an \textbf{evening peak (18--22h)}, matching traffic and
+heating cycles. The overnight trough (3--5h) reflects reduced emissions
+and boundary layer recovery. The relatively flat mean (within
+\textasciitilde0.3 AQI units) suggests hour-of-day is a weaker driver
+than season, but the wide IQR band shows high within-hour variability
+--- winter nights pull the upper quartile sharply upward.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{mutate}\NormalTok{(}
+    \AttributeTok{Week =} \FunctionTok{floor\_date}\NormalTok{(Start, }\StringTok{"week"}\NormalTok{),}
+    \AttributeTok{AQI\_Label =} \FunctionTok{factor}\NormalTok{(AQI\_Label, }\AttributeTok{levels =}\NormalTok{ aqi\_levels)}
+\NormalTok{  ) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{group\_by}\NormalTok{(Week) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{summarise}\NormalTok{(}\AttributeTok{AQI =} \FunctionTok{mean}\NormalTok{(AQI, }\AttributeTok{na.rm =} \ConstantTok{TRUE}\NormalTok{), }\AttributeTok{.groups =} \StringTok{"drop"}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{ggplot}\NormalTok{(}\FunctionTok{aes}\NormalTok{(}\AttributeTok{x =}\NormalTok{ Week, }\AttributeTok{y =}\NormalTok{ AQI)) }\SpecialCharTok{+}
+  \FunctionTok{geom\_line}\NormalTok{(}\AttributeTok{color =} \StringTok{"steelblue"}\NormalTok{, }\AttributeTok{linewidth =} \FloatTok{0.4}\NormalTok{, }\AttributeTok{alpha =} \FloatTok{0.6}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{geom\_smooth}\NormalTok{(}\AttributeTok{method =} \StringTok{"loess"}\NormalTok{, }\AttributeTok{span =} \FloatTok{0.08}\NormalTok{, }\AttributeTok{se =} \ConstantTok{FALSE}\NormalTok{, }\AttributeTok{color =} \StringTok{"firebrick"}\NormalTok{, }\AttributeTok{linewidth =} \DecValTok{1}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_x\_datetime}\NormalTok{(}\AttributeTok{date\_breaks =} \StringTok{"1 year"}\NormalTok{, }\AttributeTok{date\_labels =} \StringTok{"\%Y"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{scale\_y\_continuous}\NormalTok{(}
+    \AttributeTok{breaks =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{,}
+    \AttributeTok{labels =}\NormalTok{ aqi\_levels,}
+    \AttributeTok{limits =} \FunctionTok{c}\NormalTok{(}\DecValTok{1}\NormalTok{, }\DecValTok{6}\NormalTok{)}
+\NormalTok{  ) }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}
+    \AttributeTok{title =} \StringTok{"Weekly average AQI (2017–2024)"}\NormalTok{,}
+    \AttributeTok{subtitle =} \StringTok{"Red line = LOESS trend"}\NormalTok{,}
+    \AttributeTok{x =} \ConstantTok{NULL}\NormalTok{, }\AttributeTok{y =} \StringTok{"AQI level"}
+\NormalTok{  ) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## `geom_smooth()` using formula = 'y ~ x'
+\end{verbatim}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-17-1.pdf}}
+
+\subsection{Autocorrelation}\label{autocorrelation}
+
+\subsubsection{ACF of AQI with all components
+(2017--2024)}\label{acf-of-aqi-with-all-components-20172024}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(Start, AQI) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tsibble}\NormalTok{(}\AttributeTok{index =}\NormalTok{ Start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{ACF}\NormalTok{(AQI, }\AttributeTok{lag\_max =} \DecValTok{48} \SpecialCharTok{*} \DecValTok{7}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%} \CommentTok{\# up to one week of hourly lags}
+  \FunctionTok{autoplot}\NormalTok{() }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"ACF of AQI (2017–2024)"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Lag (hours)"}\NormalTok{, }\AttributeTok{y =} \StringTok{"ACF"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-18-1.pdf}}
+
+\subsubsection{ACF of AQI noise - 1 year seasonality removed (STL
+remainder)}\label{acf-of-aqi-noise---1-year-seasonality-removed-stl-remainder}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{noise\_season\_year }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{ACF}\NormalTok{(remainder, }\AttributeTok{lag\_max =} \DecValTok{48} \SpecialCharTok{*} \DecValTok{7}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{autoplot}\NormalTok{() }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"ACF of AQI Noise (STL Remainder) {-} 1 year season"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Lag (hours)"}\NormalTok{, }\AttributeTok{y =} \StringTok{"ACF"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-19-1.pdf}}
+
+\subsubsection{ACF after removing annual + weekly + daily
+seasonality}\label{acf-after-removing-annual-weekly-daily-seasonality}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{noise\_full }\OtherTok{\textless{}{-}}\NormalTok{ complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{model}\NormalTok{(}\FunctionTok{STL}\NormalTok{(AQI }\SpecialCharTok{\textasciitilde{}} \FunctionTok{trend}\NormalTok{() }\SpecialCharTok{+} \FunctionTok{season}\NormalTok{(}\StringTok{"1 year"}\NormalTok{) }\SpecialCharTok{+} \FunctionTok{season}\NormalTok{(}\StringTok{"week"}\NormalTok{) }\SpecialCharTok{+} \FunctionTok{season}\NormalTok{(}\StringTok{"day"}\NormalTok{), }\AttributeTok{robust =} \ConstantTok{TRUE}\NormalTok{)) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{components}\NormalTok{()}
+
+\NormalTok{noise\_full }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{ACF}\NormalTok{(remainder, }\AttributeTok{lag\_max =} \DecValTok{48} \SpecialCharTok{*} \DecValTok{7}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{autoplot}\NormalTok{() }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"ACF of AQI Noise (STL: annual + weekly + daily removed)"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Lag (hours)"}\NormalTok{, }\AttributeTok{y =} \StringTok{"ACF"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-20-1.pdf}}
+
+\subsubsection{PACF of AQI}\label{pacf-of-aqi}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{select}\NormalTok{(Start, AQI) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tsibble}\NormalTok{(}\AttributeTok{index =}\NormalTok{ Start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{PACF}\NormalTok{(AQI, }\AttributeTok{lag\_max =} \DecValTok{48}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{autoplot}\NormalTok{() }\SpecialCharTok{+}
+  \FunctionTok{labs}\NormalTok{(}\AttributeTok{title =} \StringTok{"PACF of AQI (2017–2024)"}\NormalTok{, }\AttributeTok{x =} \StringTok{"Lag (hours)"}\NormalTok{, }\AttributeTok{y =} \StringTok{"PACF"}\NormalTok{) }\SpecialCharTok{+}
+  \FunctionTok{theme\_minimal}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-21-1.pdf}}
+
+\subsubsection{Stationarity tests}\label{stationarity-tests}
+
+We run the KPSS and ADF tests to check whether our series is stationary.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{tseries}\SpecialCharTok{::}\FunctionTok{kpss.test}\NormalTok{(complete\_data}\SpecialCharTok{$}\NormalTok{AQI)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning in tseries::kpss.test(complete_data$AQI): p-value smaller than printed
+## p-value
+\end{verbatim}
+
+\begin{verbatim}
+## 
+##  KPSS Test for Level Stationarity
+## 
+## data:  complete_data$AQI
+## KPSS Level = 19.748, Truncation lag parameter = 20, p-value = 0.01
+\end{verbatim}
+
+The KPSS rejects stationarity (H0: stationary), p value \textless{} 0.01
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{tseries}\SpecialCharTok{::}\FunctionTok{adf.test}\NormalTok{(complete\_data}\SpecialCharTok{$}\NormalTok{AQI)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning in tseries::adf.test(complete_data$AQI): p-value smaller than printed
+## p-value
+\end{verbatim}
+
+\begin{verbatim}
+## 
+##  Augmented Dickey-Fuller Test
+## 
+## data:  complete_data$AQI
+## Dickey-Fuller = -24.43, Lag order = 41, p-value = 0.01
+## alternative hypothesis: stationary
+\end{verbatim}
+
+ADF rejects the unit root (H0: series has a unit root), p value
+\textless{} 0.01
+
+This should indicate seasonal non-stationarity. The mean is not
+constant, due to winter peaks and summer troughs, but there is no drift
+in the long run.
+
+\section{Random Forest --- 24h ahead (minimal
+prototype)}\label{random-forest-24h-ahead-minimal-prototype}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{library}\NormalTok{(ranger)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Warning: package 'ranger' was built under R version 4.4.3
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{rf\_df }\OtherTok{\textless{}{-}}\NormalTok{ complete\_data }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{as\_tibble}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{arrange}\NormalTok{(Start) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{transmute}\NormalTok{(}
+\NormalTok{    Start,}
+    \AttributeTok{AQI\_t =}\NormalTok{ AQI,}
+    \AttributeTok{AQI\_t1 =} \FunctionTok{lag}\NormalTok{(AQI, }\DecValTok{1}\NormalTok{), }\CommentTok{\# strongest PACF}
+    \AttributeTok{AQI\_t2 =} \FunctionTok{lag}\NormalTok{(AQI, }\DecValTok{2}\NormalTok{), }\CommentTok{\# second PACF}
+    \AttributeTok{AQI\_t24 =} \FunctionTok{lag}\NormalTok{(AQI, }\DecValTok{24}\NormalTok{), }\CommentTok{\# 24h season}
+    \AttributeTok{hour =} \FunctionTok{hour}\NormalTok{(Start),}
+    \AttributeTok{month =} \FunctionTok{month}\NormalTok{(Start),}
+    \AttributeTok{AQI\_p24 =} \FunctionTok{lead}\NormalTok{(AQI, }\DecValTok{24}\NormalTok{) }\CommentTok{\# predicted}
+\NormalTok{  ) }\SpecialCharTok{\%\textgreater{}\%}
+  \FunctionTok{drop\_na}\NormalTok{() }\SpecialCharTok{\%\textgreater{}\%}  \CommentTok{\# remove lead/lag NAs}
+  \FunctionTok{mutate}\NormalTok{(}\AttributeTok{AQI\_p24 =} \FunctionTok{factor}\NormalTok{(AQI\_p24, }\AttributeTok{levels =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{, }\AttributeTok{ordered =} \ConstantTok{TRUE}\NormalTok{))}
+
+
+\NormalTok{train\_rf }\OtherTok{\textless{}{-}}\NormalTok{ rf\_df }\SpecialCharTok{\%\textgreater{}\%} \FunctionTok{filter}\NormalTok{(}\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textless{}=} \DecValTok{2022}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%} \FunctionTok{select}\NormalTok{(}\SpecialCharTok{{-}}\NormalTok{Start)}
+\NormalTok{test\_rf  }\OtherTok{\textless{}{-}}\NormalTok{ rf\_df }\SpecialCharTok{\%\textgreater{}\%} \FunctionTok{filter}\NormalTok{(}\FunctionTok{year}\NormalTok{(Start) }\SpecialCharTok{\textgreater{}=} \DecValTok{2023}\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%} \FunctionTok{select}\NormalTok{(}\SpecialCharTok{{-}}\NormalTok{Start)}
+
+\FunctionTok{cat}\NormalTok{(}\StringTok{"Train rows:"}\NormalTok{, }\FunctionTok{nrow}\NormalTok{(train\_rf), }\StringTok{" | Test rows:"}\NormalTok{, }\FunctionTok{nrow}\NormalTok{(test\_rf), }\StringTok{"}\SpecialCharTok{\textbackslash{}n}\StringTok{"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Train rows: 52560  | Test rows: 17520
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# RF (classification, Gini splitting)}
+\FunctionTok{set.seed}\NormalTok{(}\DecValTok{2026}\NormalTok{)}
+\NormalTok{rf\_model }\OtherTok{\textless{}{-}} \FunctionTok{ranger}\NormalTok{(}
+\NormalTok{  AQI\_p24 }\SpecialCharTok{\textasciitilde{}}\NormalTok{ .,}
+  \AttributeTok{data =}\NormalTok{ train\_rf,}
+  \AttributeTok{num.trees =} \DecValTok{300}\NormalTok{,}
+  \AttributeTok{importance =} \StringTok{"permutation"}\NormalTok{,}
+  \AttributeTok{num.threads =}\NormalTok{ parallel}\SpecialCharTok{::}\FunctionTok{detectCores}\NormalTok{()}
+\NormalTok{)}
+
+\NormalTok{rf\_model}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## Ranger result
+## 
+## Call:
+##  ranger(AQI_p24 ~ ., data = train_rf, num.trees = 300, importance = "permutation",      num.threads = parallel::detectCores()) 
+## 
+## Type:                             Classification 
+## Number of trees:                  300 
+## Sample size:                      52560 
+## Number of independent variables:  6 
+## Mtry:                             2 
+## Target node size:                 1 
+## Variable importance mode:         permutation 
+## Splitrule:                        gini 
+## OOB prediction error:             38.64 %
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Evaluate on test set}
+\NormalTok{preds\_rf }\OtherTok{\textless{}{-}} \FunctionTok{as.integer}\NormalTok{(}\FunctionTok{as.character}\NormalTok{(}\FunctionTok{predict}\NormalTok{(rf\_model, test\_rf)}\SpecialCharTok{$}\NormalTok{predictions))}
+\NormalTok{actual\_rf }\OtherTok{\textless{}{-}} \FunctionTok{as.integer}\NormalTok{(}\FunctionTok{as.character}\NormalTok{(test\_rf}\SpecialCharTok{$}\NormalTok{AQI\_p24))}
+
+\NormalTok{rmse\_rf }\OtherTok{\textless{}{-}} \FunctionTok{sqrt}\NormalTok{(}\FunctionTok{mean}\NormalTok{((actual\_rf }\SpecialCharTok{{-}}\NormalTok{ preds\_rf)}\SpecialCharTok{\^{}}\DecValTok{2}\NormalTok{))}
+\NormalTok{mae\_rf }\OtherTok{\textless{}{-}} \FunctionTok{mean}\NormalTok{(}\FunctionTok{abs}\NormalTok{(actual\_rf }\SpecialCharTok{{-}}\NormalTok{ preds\_rf))}
+\NormalTok{acc\_rf }\OtherTok{\textless{}{-}} \FunctionTok{mean}\NormalTok{(preds\_rf }\SpecialCharTok{==}\NormalTok{ actual\_rf)}
+\NormalTok{w1\_rf }\OtherTok{\textless{}{-}} \FunctionTok{mean}\NormalTok{(}\FunctionTok{abs}\NormalTok{(preds\_rf }\SpecialCharTok{{-}}\NormalTok{ actual\_rf) }\SpecialCharTok{\textless{}=} \DecValTok{1}\NormalTok{)}
+
+\FunctionTok{cat}\NormalTok{(}\FunctionTok{sprintf}\NormalTok{(}\StringTok{"RMSE: \%.4f | MAE: \%.4f | Exact: \%.1f\%\% | Within +{-}1 class: \%.1f\%\%}\SpecialCharTok{\textbackslash{}n}\StringTok{"}\NormalTok{, rmse\_rf, mae\_rf, acc\_rf }\SpecialCharTok{*} \DecValTok{100}\NormalTok{, w1\_rf }\SpecialCharTok{*} \DecValTok{100}\NormalTok{))}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## RMSE: 0.7113 | MAE: 0.4467 | Exact: 58.2% | Within +-1 class: 97.2%
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{tibble}\NormalTok{(}
+  \AttributeTok{Class =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{,}
+  \AttributeTok{Label =}\NormalTok{ aqi\_levels,}
+  \AttributeTok{Actual =} \FunctionTok{as.integer}\NormalTok{(}\FunctionTok{table}\NormalTok{(}\FunctionTok{factor}\NormalTok{(actual\_rf, }\AttributeTok{levels =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{))),}
+  \AttributeTok{Predicted =} \FunctionTok{as.integer}\NormalTok{(}\FunctionTok{table}\NormalTok{(}\FunctionTok{factor}\NormalTok{(preds\_rf,  }\AttributeTok{levels =} \DecValTok{1}\SpecialCharTok{:}\DecValTok{6}\NormalTok{)))}
+\NormalTok{) }\SpecialCharTok{\%\textgreater{}\%} \FunctionTok{print}\NormalTok{()}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{verbatim}
+## # A tibble: 6 x 4
+##   Class Label          Actual Predicted
+##   <int> <chr>           <int>     <int>
+## 1     1 Good             1419        22
+## 2     2 Fair             9014     10517
+## 3     3 Moderate         6478      6822
+## 4     4 Poor              577       159
+## 5     5 Very poor          22         0
+## 6     6 Extremely poor     10         0
+\end{verbatim}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\# Feature importance}
+\NormalTok{imp }\OtherTok{\textless{}{-}} \FunctionTok{sort}\NormalTok{(rf\_model}\SpecialCharTok{$}\NormalTok{variable.importance,}\AttributeTok{decreasing =} \ConstantTok{TRUE}\NormalTok{)}
+\FunctionTok{barplot}\NormalTok{(imp, }\AttributeTok{horiz =} \ConstantTok{TRUE}\NormalTok{, }\AttributeTok{las =} \DecValTok{1}\NormalTok{, }\AttributeTok{cex.names =} \FloatTok{0.8}\NormalTok{,}
+        \AttributeTok{main =} \StringTok{"RF Permutation Importance (t+24)"}\NormalTok{, }\AttributeTok{xlab =} \StringTok{"\% IncMSE"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\pandocbounded{\includegraphics[keepaspectratio]{project_files/figure-latex/unnamed-chunk-27-1.pdf}}
+
+\end{document}
