@@ -299,7 +299,7 @@ add_eaqi <- function(df) {
 complete_data <- add_eaqi(complete_data)
 glimpse(complete_data)
 ```
-As AQI is calculated based on the worst pollutant in the area, we should find out which ones is the most influencing one (biased by compare order when there are multiple worst pollutants).
+As AQI is calculated based on the worst pollutant in the area, we should find out which is the most influencing one (biased by compare order when there are multiple worst pollutants).
 
 ```{r}
 complete_data %>% 
@@ -315,8 +315,11 @@ complete_data %>%
   group_by(AQI_poll) %>%
   summarise(count = n()) %>%
   arrange(desc(count))
-
 ```
+
+This table shows that the PM2.5 is most commonly the worst pollutant. This is explained by Bratislava's geography, as the city lies in a basin, and it's prone to temperature inversions that trap pollutants. The second worst, NO2 is caused by traffic emissions, and third one, O3 peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight.
+
+This means that predicting AQI is largely equivalent to predicting PM2.5 levels.
 
 # EDA
 
@@ -347,7 +350,7 @@ complete_data %>%
     limits = c(1, 6)
   ) +
   labs(
-    title = "Weekly average AQI (2017–2024)",
+    title = "Weekly average AQI (2017-2024)",
     subtitle = "Red line = LOESS trend",
     x = NULL, y = "AQI level"
   )
@@ -363,8 +366,27 @@ complete_data %>%
   geom_col() +
   geom_text(aes(label = sprintf("%.1f%%", percent)), vjust = -0.5, size = 3.5) +
   scale_fill_manual(values = aqi_colors) +
-  labs(title = "AQI Distribution (2017–2024)", x = "AQI", y = "Count")
+  labs(title = "AQI Distribution (2017-2024)", x = "AQI", y = "Count")
 ```
+
+## Outliers
+
+Boxplots of pollutant concentrations (µg/m³) show which pollutants drive extreme AQI values.
+
+```{r}
+complete_data %>%
+  as_tibble() %>%
+  select(Start, PM2.5, PM10, NO2, O3, SO2) %>%
+  pivot_longer(-Start, names_to = "Pollutant", values_to = "Concentration") %>%
+  mutate(Pollutant = factor(Pollutant, levels = c("PM2.5", "PM10", "NO2", "O3", "SO2"))) %>%
+  ggplot(aes(Pollutant, Concentration, fill = Pollutant)) +
+  geom_boxplot(outlier.size = 0.4, outlier.alpha = 0.3, linewidth = 0.4) +
+  facet_wrap(~Pollutant, scales = "free_y", nrow = 1) +
+  labs(title = "Pollutant distributions with outliers (2017-2024)", x = NULL, y = "Concentration (µg/m³)") +
+  theme(legend.position = "none", axis.text.x = element_blank())
+```
+
+The plots show that NO2 and PM2.5 have the most frequent outlier hours. SO2, on the other hands, shows the most extreme outliers. As those readings are real world, validated sensor measurements, not errors, they are kept in the dataset.
 
 ## Decomposition and seasonality
 
@@ -410,21 +432,22 @@ monthly_aqi <- complete_data %>%
 monthly_aqi %>%
   gg_season(AQI, labels = "right") +
   scale_y_continuous(breaks = 1:6,
-                     labels = c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor"),
+                     labels = aqi_levels,
                      limits = c(1, 4)) +
   labs(y = "Mean Monthly AQI", x = "Month",
-       title = "Seasonal plot - monthly AQI by year (2017–2024)")
+       title = "Seasonal plot - monthly AQI by year (2017-2024)")
 
 monthly_aqi %>%
   gg_subseries(AQI, labels = "right") +
   scale_y_continuous(breaks = 1:6,
-                     labels = c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor"),
+                     labels = aqi_levels,
                      limits = c(1, 4)) +
   labs(y = "Mean Monthly AQI", x = "Month",
-       title = "Seasonal plot - monthly AQI by year (2017–2024)")
+       title = "Seasonal plot - monthly AQI by year (2017-2024)")
 ```
 
-The seasonal plot clearly shows a **winter peak (Nov–Mar)** and **summer trough (May–Sep)** consistent across all years, driven primarily by PM2.5 from residential heating.??
+The plot shows that AQI is worse around winter months (November to March), spring and autumn months have the best air quality, while summer is somewhere in the middle.
+This is likely caused by heating in the winter months (by PM2.5).
 
 ```{r}
 hourly_aqi <- complete_data %>%
@@ -444,27 +467,27 @@ ggplot(aes(Hour, Mean)) +
   scale_x_continuous(breaks = 0:23) +
   scale_y_continuous(
     breaks = 1:6,
-    labels = c("Good", "Fair", "Moderate", "Poor", "Very poor", "Extremely poor"),
+    labels = aqi_levels,
     limits = c(1, 6)
   ) +
   labs(
-    title = "Hourly AQI pattern (hour of day, 2017–2024)",
+    title = "Hourly AQI pattern (hour of day, 2017-2024)",
     x = element_blank(), y = element_blank()
   )
 ```
 
-The hourly plot reveals two daily peaks: a **morning rush (7–9h)** and an **evening peak (18–22h)**, matching traffic and heating cycles.
-The overnight trough (3–5h) reflects reduced emissions and boundary layer recovery.??
+The hourly plot shows that there is a slight peak at around 6am, and an evening peak at around 16pm, or 22pm, likely due to traffic and heating patterns.
+
 
 ## Autocorrelation
 
-### ACF of AQI with all components (2017–2024)
+### ACF of AQI with all components (2017-2024)
 
 ```{r}
 complete_data %>%
   ACF(AQI, lag_max = 48 * 7) %>% # up to one week of hourly lags
   autoplot() +
-  labs(title = "ACF of AQI (2017–2024)", x = "Lag (hours)", y = "ACF")
+  labs(title = "ACF of AQI (2017-2024)", x = "Lag (hours)", y = "ACF")
 ```
 
 ### ACF of AQI noise - 1 year seasonality removed (STL remainder)
@@ -495,7 +518,7 @@ noise_full %>%
 complete_data %>%
   PACF(AQI, lag_max = 48) %>%
   autoplot() +
-  labs(title = "PACF of AQI (2017–2024)", x = "Lag (hours)", y = "PACF")
+  labs(title = "PACF of AQI (2017-2024)", x = "Lag (hours)", y = "PACF")
 ```
 
 ### Stationarity tests
@@ -522,6 +545,7 @@ ADF rejects the unit root (H0: series has a unit root), p value \< 0.01
 
 This should indicate seasonal non-stationarity (trend-stationarity).
 The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
+Since this time series does not have a unit root, we will not be using differencing as that would likely lead to overdifferencing.
 
 # Random Forest — 24h ahead (minimal prototype)
 
