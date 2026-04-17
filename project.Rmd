@@ -401,32 +401,19 @@ complete_data %>%
   theme(panel.background = element_rect(),
         panel.grid.major = element_line())
 
-# TODO clean this up
-noise_season_year <- complete_data %>%
+data_season_year <- complete_data %>%
   model(STL(AQI ~ trend() + season("1 year"), robust = TRUE)) %>%
   components()
 
-noise_season_day <- complete_data %>%
-  model(STL(AQI ~ trend() + season("day"), robust = TRUE)) %>%
-  components()
-
-noise_season_year_day <- complete_data %>%
+data_season_year_day <- complete_data %>%
   model(STL(AQI ~ trend() + season("1 year") + season("day"), robust = TRUE)) %>%
-  components()
-
-noise_season_year_week <- complete_data %>%
-  model(STL(AQI ~ trend() + season("1 year") + season("week"), robust = TRUE)) %>%
-  components()
-
-noise_season_full <- complete_data %>%
-  model(STL(AQI ~ trend() + season("1 year") + season("week") + season("day"), robust = TRUE)) %>%
   components()
 
 ```
 
 ```{r}
 monthly_aqi <- complete_data %>%
-  index_by(Month = yearmonth(Start)) %>%
+  index_by(Month = yearquarter(Start)) %>%
   summarise(AQI = mean(AQI))
 
 monthly_aqi %>%
@@ -438,12 +425,19 @@ monthly_aqi %>%
        title = "Seasonal plot - monthly AQI by year (2017-2024)")
 
 monthly_aqi %>%
-  gg_subseries(AQI, labels = "right") +
+  gg_subseries(AQI) +
   scale_y_continuous(breaks = 1:6,
                      labels = aqi_levels,
                      limits = c(1, 4)) +
   labs(y = "Mean Monthly AQI", x = "Month",
        title = "Seasonal plot - monthly AQI by year (2017-2024)")
+
+complete_data %>%
+  gg_season(PM2.5, labels = "right") +
+  labs(y = "PM2.5", x = element_blank(),
+       title = "Yearly PM2.5 (2017-2024)")
+
+
 ```
 
 The plot shows that AQI is worse around winter months (November to March), spring and autumn months have the best air quality, while summer is somewhere in the middle.
@@ -493,7 +487,7 @@ complete_data %>%
 ### ACF of AQI noise - 1 year seasonality removed (STL remainder)
 
 ```{r}
-noise_season_year %>%
+data_season_year %>%
   ACF(remainder, lag_max = 48 * 7) %>%
   autoplot() +
   labs(title = "ACF of AQI Noise - 1 year season", x = "Lag (hours)", y = "ACF")
@@ -502,14 +496,10 @@ noise_season_year %>%
 ### ACF after removing annual + weekly + daily seasonality
 
 ```{r}
-noise_full <- complete_data %>%
-  model(STL(AQI ~ trend() + season("1 year") + season("week") + season("day"), robust = TRUE)) %>%
-  components()
-
-noise_full %>%
+data_season_year_day %>%
   ACF(remainder, lag_max = 48 * 7) %>%
   autoplot() +
-  labs(title = "ACF of AQI Noise (STL: annual + weekly + daily removed)", x = "Lag (hours)", y = "ACF")
+  labs(title = "ACF of AQI Noise (STL: annual + daily removed)", x = "Lag (hours)", y = "ACF")
 ```
 
 ### PACF of AQI
@@ -525,19 +515,15 @@ complete_data %>%
 
 We run the KPSS and ADF tests to check whether our series is stationary.
 
-```{r}
+```{r warning=FALSE}
 tseries::kpss.test(complete_data$AQI)
-#tseries::kpss.test(difference(complete_data$AQI))
-#tseries::kpss.test(noise_season_full$remainder)
-#tseries::kpss.test(noise_season_year$remainder)
-#tseries::kpss.test(noise_season_year_day$remainder)
-#tseries::kpss.test(noise_season_year_week$remainder)
-#tseries::kpss.test(noise_season_day$remainder)
+tseries::kpss.test(noise_season_year$remainder)
+tseries::kpss.test(noise_season_year_day$remainder)
 ```
 
 The KPSS rejects stationarity (H0: stationary), p value \< 0.01
 
-```{r}
+```{r warning=FALSE}
 tseries::adf.test(complete_data$AQI)
 ```
 
