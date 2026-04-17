@@ -193,7 +193,9 @@ impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3
 
 complete_air_data <- clean_air_data %>%
   mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ 
-    pmax(impute_missing_values(.x, Start, max_linear = 8, window_days = 3), 0)))
+    zoo::na.approx(., na.rm = FALSE, maxgap = 3)
+      #impute_missing_values(.x, Start)
+    ))
 
 complete_rows <- sum(complete.cases(complete_air_data)) # 60845
 rows <- nrow(complete_air_data) # 70128
@@ -394,7 +396,8 @@ STL decomposition of AQI:
 
 ```{r}
 complete_data %>%
-  model(STL(AQI ~ season("year") + season("week") + season("day"), robust = TRUE)) %>%
+  mutate(AQI = na.interp(AQI)) %>%
+  model(STL(AQI ~ season(365*24) + season(7*24) + season(24), robust = TRUE)) %>%
   components() %>%
   autoplot(linewidth = 0.001) +
   labs(title = "STL Decomposition of AQI", x = "Time", y = "AQI") + 
@@ -402,10 +405,12 @@ complete_data %>%
         panel.grid.major = element_line())
 
 data_season_year <- complete_data %>%
+  mutate(AQI = na.interp(AQI)) %>%
   model(STL(AQI ~ trend() + season("1 year"), robust = TRUE)) %>%
   components()
 
 data_season_year_day <- complete_data %>%
+  mutate(AQI = na.interp(AQI)) %>%
   model(STL(AQI ~ trend() + season("1 year") + season("day"), robust = TRUE)) %>%
   components()
 
