@@ -496,6 +496,7 @@ data_season_year_day <- complete_data %>%
   components()
 
 ```
+@TODO: opis dekompozicie
 
 ```{r}
 monthly_aqi <- complete_data %>%
@@ -561,6 +562,8 @@ The hourly plot shows that there is a slight peak at around 6am, and an evening 
 
 ## Autocorrelation
 
+This step should help us understand which lags are the most important for predicting AQI.
+
 ### ACF of AQI with all components (2017-2024)
 
 ```{r}
@@ -569,6 +572,8 @@ complete_data %>%
   autoplot() +
   labs(title = "ACF of AQI (2017-2024)", x = "Lag (hours)", y = "ACF")
 ```
+
+The plot shows that AQI lags slowly decay. Spikes at 24 hour cycles confirm this daily cycle. There is also a spike at lag 168 (7 days).
 
 ### ACF of AQI noise - 1 year seasonality removed (STL remainder)
 
@@ -579,7 +584,9 @@ data_season_year %>%
   labs(title = "ACF of AQI Noise - 1 year season", x = "Lag (hours)", y = "ACF")
 ```
 
-### ACF after removing annual + weekly + daily seasonality
+By removing the 1 year seasonality, the long-range slow decay practically disappears, and the 24 hour spikes remain prominent. 
+
+### ACF after removing annual + daily seasonality
 
 ```{r}
 data_season_year_day %>%
@@ -587,6 +594,8 @@ data_season_year_day %>%
   autoplot() +
   labs(title = "ACF of AQI Noise (STL: annual + daily removed)", x = "Lag (hours)", y = "ACF")
 ```
+
+Now that both annual and daily components are removed, the lags decay in a much smoother manner. The lag 1 stays high, but the 24 hour spike is gone compared to previous plots. 
 
 ### PACF of AQI
 
@@ -596,6 +605,9 @@ complete_data %>%
   autoplot() +
   labs(title = "PACF of AQI (2017-2024)", x = "Lag (hours)", y = "PACF")
 ```
+
+The PACF plot confirms that the lags 1 and 2 are the most important. 
+@TODO: mozno lepsi popis? toto je dobre pre ARIMU, mozno dat uplne prec ak sa nepouzije...
 
 ### Stationarity tests
 
