@@ -159,12 +159,14 @@ clean_air_data %>%
 13.24% of our data is missing.
 The longest gap (sequence of NA values) for any pollutant is 10.2 days for NO2.
 
-Next step is to impute the missing values.
-We use a 2 step approach.
-- Linear interpolation for small gaps (smaller than 8 hours) - Mean for same hour of day - for larger gaps, this respects the cycles in the data
+We have dicided that impute the gaps with linear interpolation for small gaps (3 hours). 
+Longer gaps will be kept as NA, as replacing them could disrupt the seasonality or trends in data. 
+The 3 hour gaps should be short enough to not cause significant bias.
 
 ```{r}
-# TODO 
+# @TODO: Old code, unused currently (might be used later if needed)
+# We use a 2 step approach.
+# Linear interpolation for small gaps (smaller than 8 hours) - Mean for same hour of day - for larger gaps, this respects the cycles in the data
 impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3) {
   x_out <- zoo::na.approx(x, na.rm = FALSE, maxgap = max_linear)
 
@@ -190,6 +192,7 @@ impute_missing_values <- function(x, timestamps, max_linear = 8, window_days = 3
   }
   x_out
 }
+# END old code
 
 complete_air_data <- clean_air_data %>%
   mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ 
@@ -203,7 +206,7 @@ missing_percentage <- (rows - complete_rows) / rows * 100
 missing_percentage
 ```
 
-Now, the dataset is complete with no missing values.
+Now, after running the linear interpolation for maximum of 3 hour gaps, we reduced the missing percentage to 3.94%, which is acceptable.
 
 # Weather Dataset
 
@@ -211,41 +214,120 @@ Now, the dataset is complete with no missing values.
 -   It contains weather data from year 2017 until the end of 2024
 -   Timezone is stated as GMT+0
 
-Loading the dataset and merging it with pollutants:
+We now load the dataset and rename the columns.
 
 ```{r}
-# TODO output formatting
 weather_file_path <- here("weather", "open-meteo-48.12N17.10E163m.csv")
 
-# TODO: select more variables, reason about which ones
-weather_data <- read_csv(weather_file_path, skip = 3)%>%
+weather_raw <- read_csv(weather_file_path, skip = 3) %>%
+  # We rename the columns manually, as the original names contain spaces and units
   rename(
-    Start = time,
-    Temperature = `temperature_2m (°C)`,
-    Rain = `rain (mm)`,
-    Wind_Speed = `wind_speed_10m (km/h)`
+    Start                 = time,
+    Temperature           = `temperature_2m (°C)`,
+    Humidity              = `relative_humidity_2m (%)`,
+    Dew_Point             = `dew_point_2m (°C)`,
+    Apparent_Temp         = `apparent_temperature (°C)`,
+    Rain                  = `rain (mm)`,
+    Precipitation         = `precipitation (mm)`,
+    Snow_Depth            = `snow_depth (m)`,
+    Snowfall              = `snowfall (cm)`,
+    Weather_Code          = `weather_code (wmo code)`,
+    Pressure_MSL          = `pressure_msl (hPa)`,
+    Cloud_Cover           = `cloud_cover (%)`,
+    Surface_Pressure      = `surface_pressure (hPa)`,
+    Cloud_Cover_Low       = `cloud_cover_low (%)`,
+    Cloud_Cover_Mid       = `cloud_cover_mid (%)`,
+    Cloud_Cover_High      = `cloud_cover_high (%)`,
+    ET0                   = `et0_fao_evapotranspiration (mm)`,
+    Vapour_Pressure_Def   = `vapour_pressure_deficit (kPa)`,
+    Wind_Speed            = `wind_speed_10m (km/h)`,
+    Wind_Speed_100m       = `wind_speed_100m (km/h)`,
+    Wind_Direction        = `wind_direction_10m (°)`,
+    Wind_Gusts            = `wind_gusts_10m (km/h)`,
+    Wind_Direction_100m   = `wind_direction_100m (°)`,
+    Soil_Temp_0_7         = `soil_temperature_0_to_7cm (°C)`,
+    Soil_Temp_7_28        = `soil_temperature_7_to_28cm (°C)`,
+    Soil_Temp_28_100      = `soil_temperature_28_to_100cm (°C)`,
+    Soil_Temp_100_255     = `soil_temperature_100_to_255cm (°C)`,
+    Soil_Moisture_0_7     = `soil_moisture_0_to_7cm (m³/m³)`,
+    Soil_Moisture_7_28    = `soil_moisture_7_to_28cm (m³/m³)`,
+    Soil_Moisture_28_100  = `soil_moisture_28_to_100cm (m³/m³)`,
+    Soil_Moisture_100_255 = `soil_moisture_100_to_255cm (m³/m³)`
   ) %>%
-  #select(Start, Temperature, Rain, Wind_Speed) %>%
   filter(year(Start) >= 2017, year(Start) <= 2024)
 
-complete_rows_weather <- sum(complete.cases(weather_data))
-rows_weather <- nrow(weather_data)
-missing_percentage_weather <- (rows_weather - complete_rows_weather) / rows_weather * 100
-missing_percentage_weather
-
-complete_data <- complete_air_data %>%
-  inner_join(weather_data, by = "Start")
-
-glimpse(complete_data)
-summary(complete_data)
-has_gaps(complete_data)
+glimpse(weather_raw)
 ```
 
-The open meteo dataset has no missing values.
-The merge has not changed the row count, and our time series has no gaps.
-Currently, we have 36 columns.
+```{r}
+cat("Rows:", nrow(weather_raw), "| Missing:", sum(!complete.cases(weather_raw)), "\n")
+cat("Columns:", ncol(weather_raw), "\n")
+```
 
-Next step is to add AQI.
+## Data Cleaning
+
+The weather dataset has no missing values. It has 31 columns. 
+
+We now try to identify collinearity (or linear relationships) between variables by looking at the correlation heatmap.
+The heatmap is hierarchically clustered, so the most correlated variables are grouped together, which helps us identify clusters of collinear features.
+```{r fig.height=8, fig.width=8}
+cor_matrix <- weather_raw %>%
+  select(-Start, -Weather_Code) %>%
+  cor(use = "complete.obs")
+
+cor_matrix %>%
+  corrplot(
+    method = "color", type = "upper", order = "hclust",
+    addCoef.col = "black",
+    number.cex = 0.4,
+    number.digits = 1,
+    tl.cex = 0.55, tl.col = "black",
+    col = colorRampPalette(c("steelblue", "white", "firebrick"))(200),
+    title = "Weather variable correlations",
+    mar = c(0, 0, 1.5, 0)
+  )
+```
+
+
+```{r}
+cor_matrix %>%
+  as_tibble(rownames = "Var1") %>%
+  pivot_longer(-Var1, names_to = "Var2", values_to = "Correlation") %>%
+  filter(Var1 < Var2) %>%
+  arrange(desc(abs(Correlation))) %>%
+  head(20)
+
+```
+
+The correlation heatmap confirms that we some variables are extremely highly correlated. Some of there are caused by measuring the same underlying phenomenon, but at different heights (e.g. wind speed at 10m and 100m), or they are calculated from the other columns (e.g. apparent temperature is calculated from temperature, humidity, and wind)
+
+```{r}
+weather_data <- weather_raw %>%
+  select(-c(
+    Wind_Speed_100m, Wind_Direction_100m, 
+    Soil_Temp_7_28, Soil_Temp_28_100, Soil_Temp_100_255,
+    Soil_Moisture_7_28, Soil_Moisture_28_100, Soil_Moisture_100_255,
+    Surface_Pressure, Apparent_Temp, Snow_Depth, ET0
+  ))
+```
+
+# Merging the datasets
+
+```{r}
+merged_data <- complete_air_data %>%
+  inner_join(weather_data, by = "Start")
+
+glimpse(merged_data)
+summary(merged_data)
+has_gaps(merged_data)
+```
+
+After the redundant variables are removed, we retain 24 features in total.
+The merge has not changed the row count, and our time series has no gaps.
+
+# AQI Calculation
+
+Next step is to add AQI. AQI is calculated based on the worst pollutant in the area, so we calculate AQI level for each pollutant and then take the maximum of those as the overall AQI level. There are 6 AQI levels, from 1 (good) to 6 (extremely poor), based on the concentration thresholds defined by the European Environment Agency (EEA).
 
 ```{r}
 
@@ -258,49 +340,49 @@ aqi_colors <- c("Good"           = "#50f0e6",
                 "Very poor"      = "#960032",
                 "Extremely poor" = "#7d2181")
 
-## European AQI
-add_eaqi <- function(df) {
-  df %>%
-    mutate(
-      AQI_PM2.5 = case_when(
-        `PM2.5` <=   5 ~ 1L, `PM2.5` <=  15 ~ 2L, `PM2.5` <=  50 ~ 3L,
-        `PM2.5` <=  90 ~ 4L, `PM2.5` <= 140 ~ 5L, `PM2.5` >  140 ~ 6L
+# European AQI calculation
+complete_data <- merged_data %>%
+  mutate(
+    AQI_PM2.5 = case_when(
+      `PM2.5` <=   5 ~ 1L, `PM2.5` <=  15 ~ 2L, `PM2.5` <=  50 ~ 3L,
+      `PM2.5` <=  90 ~ 4L, `PM2.5` <= 140 ~ 5L, `PM2.5` >  140 ~ 6L
+    ),
+    AQI_PM10 = case_when(
+      PM10 <=  15 ~ 1L, PM10 <=  45 ~ 2L, PM10 <= 120 ~ 3L,
+      PM10 <= 195 ~ 4L, PM10 <= 270 ~ 5L, PM10 >  270 ~ 6L
+    ),
+    AQI_O3 = case_when(
+      O3 <=  60 ~ 1L, O3 <= 100 ~ 2L, O3 <= 120 ~ 3L,
+      O3 <= 160 ~ 4L, O3 <= 180 ~ 5L, O3 >  180 ~ 6L
+    ),
+    AQI_NO2 = case_when(
+      NO2 <=  10 ~ 1L, NO2 <=  25 ~ 2L, NO2 <=  60 ~ 3L,
+      NO2 <= 100 ~ 4L, NO2 <= 150 ~ 5L, NO2 >  150 ~ 6L
+    ),
+    AQI_SO2 = case_when(
+      SO2 <=  20 ~ 1L, SO2 <=  40 ~ 2L, SO2 <= 125 ~ 3L,
+      SO2 <= 190 ~ 4L, SO2 <= 275 ~ 5L, SO2 >  275 ~ 6L
+    ),
+    AQI = pmax(AQI_PM2.5, AQI_PM10, AQI_O3, AQI_NO2, AQI_SO2, na.rm = TRUE),
+    AQI_Label = factor(
+      case_when(
+        AQI == 1L ~ aqi_levels[1],
+        AQI == 2L ~ aqi_levels[2],
+        AQI == 3L ~ aqi_levels[3],
+        AQI == 4L ~ aqi_levels[4],
+        AQI == 5L ~ aqi_levels[5],
+        AQI == 6L ~ aqi_levels[6],
       ),
-      AQI_PM10 = case_when(
-        PM10 <=  15 ~ 1L, PM10 <=  45 ~ 2L, PM10 <= 120 ~ 3L,
-        PM10 <= 195 ~ 4L, PM10 <= 270 ~ 5L, PM10 >  270 ~ 6L
-      ),
-      AQI_O3 = case_when(
-        O3 <=  60 ~ 1L, O3 <= 100 ~ 2L, O3 <= 120 ~ 3L,
-        O3 <= 160 ~ 4L, O3 <= 180 ~ 5L, O3 >  180 ~ 6L
-      ),
-      AQI_NO2 = case_when(
-        NO2 <=  10 ~ 1L, NO2 <=  25 ~ 2L, NO2 <=  60 ~ 3L,
-        NO2 <= 100 ~ 4L, NO2 <= 150 ~ 5L, NO2 >  150 ~ 6L
-      ),
-      AQI_SO2 = case_when(
-        SO2 <=  20 ~ 1L, SO2 <=  40 ~ 2L, SO2 <= 125 ~ 3L,
-        SO2 <= 190 ~ 4L, SO2 <= 275 ~ 5L, SO2 >  275 ~ 6L
-      ),
-      AQI = pmax(AQI_PM2.5, AQI_PM10, AQI_O3, AQI_NO2, AQI_SO2, na.rm = TRUE),
-      AQI_Label = factor(
-        case_when(
-          AQI == 1L ~ aqi_levels[1],
-          AQI == 2L ~ aqi_levels[2],
-          AQI == 3L ~ aqi_levels[3],
-          AQI == 4L ~ aqi_levels[4],
-          AQI == 5L ~ aqi_levels[5],
-          AQI == 6L ~ aqi_levels[6],
-        ),
-        levels = aqi_levels,
-        ordered = TRUE
-      )
+      levels = aqi_levels,
+      ordered = TRUE # AQI is an ordered factor
     )
-}
+  )
 
-complete_data <- add_eaqi(complete_data)
 glimpse(complete_data)
 ```
+
+# Exploratory Data Analysis (EDA)
+
 As AQI is calculated based on the worst pollutant in the area, we should find out which is the most influencing one (biased by compare order when there are multiple worst pollutants).
 
 ```{r}
@@ -316,14 +398,13 @@ complete_data %>%
   )) %>%
   group_by(AQI_poll) %>%
   summarise(count = n()) %>%
+  drop_na() %>%
   arrange(desc(count))
 ```
 
-This table shows that the PM2.5 is most commonly the worst pollutant. This is explained by Bratislava's geography, as the city lies in a basin, and it's prone to temperature inversions that trap pollutants. The second worst, NO2 is caused by traffic emissions, and third one, O3 peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight.
+This table shows that PM2.5 drives the AQI the most. This is explained by Bratislava's geography, as the city lies in a basin, and it's prone to temperature inversions that trap pollutants. The second most influencing pollutant, NO2, is caused by traffic emissions, and the third one, O3, peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight.
 
 This means that predicting AQI is largely equivalent to predicting PM2.5 levels.
-
-# EDA
 
 ```{r}
 theme_set(theme_minimal() + 
