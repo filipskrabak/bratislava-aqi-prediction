@@ -33,8 +33,8 @@ here::i_am("project.Rmd")
 
 # Introduction
 
-The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data.
-This requires us to merge two datasets - the pollutants dataset and the weather dataset.
+The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data from Mamateyova street.
+This requires us to merge two datasets - the pollutants dataset and the weather dataset. This is a multi-class classification problem, since AQI is categorized into 6 classes, from "Good" to "Extremely poor".
 
 ## Project Hypothesis: (concept)
 
@@ -340,6 +340,15 @@ aqi_colors <- c("Good"           = "#50f0e6",
                 "Very poor"      = "#960032",
                 "Extremely poor" = "#7d2181")
 
+pollutant_colors <- c(
+  "PM2.5"       = "#960032",
+  "PM10"        = "#ff5050",
+  "NO2"         = "#f0e641",
+  "O3"          = "#50ccaa",
+  "SO2"         = "#50f0e6",
+  "Tie/Missing" = "#cccccc"
+)
+
 # European AQI calculation
 complete_data <- merged_data %>%
   mutate(
@@ -383,29 +392,6 @@ glimpse(complete_data)
 
 # Exploratory Data Analysis (EDA)
 
-As AQI is calculated based on the worst pollutant in the area, we should find out which is the most influencing one (biased by compare order when there are multiple worst pollutants).
-
-```{r}
-complete_data %>% 
-  as_tibble() %>%
-  select(AQI, AQI_SO2, AQI_NO2, AQI_O3, AQI_PM10, AQI_PM2.5) %>%
-  mutate(AQI_poll = case_when(
-    AQI == AQI_PM2.5 ~ "AQI_PM2.5",
-    AQI == AQI_PM10 ~ "AQI_PM10",
-    AQI == AQI_O3 ~ "AQI_O3",
-    AQI == AQI_NO2 ~ "AQI_NO2",
-    AQI == AQI_SO2 ~ "AQI_SO2",
-  )) %>%
-  group_by(AQI_poll) %>%
-  summarise(count = n()) %>%
-  drop_na() %>%
-  arrange(desc(count))
-```
-
-This table shows that PM2.5 drives the AQI the most. This is explained by Bratislava's geography, as the city lies in a basin, and it's prone to temperature inversions that trap pollutants. The second most influencing pollutant, NO2, is caused by traffic emissions, and the third one, O3, peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight.
-
-This means that predicting AQI is largely equivalent to predicting PM2.5 levels.
-
 ```{r}
 theme_set(theme_minimal() + 
   theme(panel.grid.major = element_blank(), 
@@ -414,7 +400,79 @@ theme_set(theme_minimal() +
         axis.line = element_line(colour = "grey"))) 
 ```
 
-## AQI (weekly average)
+## AQI Distribution
+
+```{r}
+complete_data %>%
+  count(AQI_Label) %>%
+  mutate(percent = n / sum(n) * 100) %>%
+  ggplot(aes(AQI_Label, n, fill = AQI_Label)) +
+  geom_col() +
+  geom_text(aes(label = sprintf("%.1f%%", percent)), vjust = -0.5, size = 3.5) +
+  scale_fill_manual(values = aqi_colors) +
+  labs(title = "AQI Distribution (2017-2024)", x = "AQI", y = "Count")
+```
+
+Air quality in Bratislava is mostly Fair and Moderate (88%). Good air quality happens in 5.2% of hours, while Poor is at 5.4%. Very poor and Extremely poor are rare, with 0.3% and 0.1% of hours, respectively. 
+
+This means that the dataset is severely imbalanced. The most important classes (Poor, Very poor and Extremely poor) account for 5.8% of the data, yet these classes represent the most critical air quality targets for a health warning system. This imbalance will need to be addressed in the modeling phase.
+
+## AQI Drivers
+
+As AQI is calculated based on the worst pollutant in the area, we should find out which is the most influencing one. When there are multiple pollutants with the same AQI level, we will label it as "Tie".
+
+```{r}
+aqi_drivers <- complete_data %>%
+  as_tibble() %>%
+  filter(!is.na(AQI)) %>%
+  filter(AQI > 1) %>% # "Good" class is the baseline
+  mutate(
+    n_tied = (AQI_PM2.5 == AQI) + (AQI_PM10 == AQI) +
+             (AQI_O3    == AQI) + (AQI_NO2  == AQI) +
+             (AQI_SO2   == AQI),
+    driver = case_when(
+      is.na(n_tied) | n_tied != 1 ~ "Tie/Missing",
+      AQI_PM2.5 == AQI ~ "PM2.5",
+      AQI_PM10  == AQI ~ "PM10",
+      AQI_O3    == AQI ~ "O3",
+      AQI_NO2   == AQI ~ "NO2",
+      AQI_SO2   == AQI ~ "SO2"
+    )
+  )
+
+aqi_drivers %>%
+  count(driver) %>%
+  mutate(Percentage = round(100 * n / sum(n), 1)) %>%
+  arrange(desc(n)) %>%
+  rename(Pollutant = driver, Hours = n)
+```
+
+From the table, we can see that PM2.5 influences the AQI the most, in **19.3%** of cases. The second most influencing pollutant, NO2 (17.3%), is caused by traffic emissions, and the third one, O3 (10.8%), peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight. 
+
+```{r}
+aqi_drivers %>%
+  summarise(n = n(), .by = c(AQI, driver)) %>%
+  mutate(pct = 100 * n / sum(n), .by = AQI) %>%
+  mutate(
+    driver = factor(driver, levels = c("PM2.5", "PM10", "NO2", "O3", "SO2", "Tie/Missing")),
+    AQI    = factor(AQI, levels = 1:6, labels = aqi_levels)
+  ) %>%
+  ggplot(aes(AQI, pct, fill = driver)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = if_else(pct >= 5, sprintf("%.0f%%", pct), "")),
+            position = position_stack(vjust = 0.5), size = 3.2, color = "white", fontface = "bold") +
+  scale_fill_manual(values = pollutant_colors) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1), expand = c(0, 0)) +
+  labs(
+    title = "Which pollutant drives the AQI? (by class)",
+    x = "AQI class", y = "Share of hours (%)", fill = "Pollutant"
+  )
+```
+
+Interestingly, class 6 (Extremely poor) is dominated by O3 (43%) and SO2 (37%). These events occur during the summer motnhs (ozone) and are likely associated with industrial SO2 emissions. 
+
+## Weekly average of AQI across years
+
 ```{r}
 complete_data %>%
   as_tibble() %>%
@@ -439,20 +497,11 @@ complete_data %>%
   )
 ```
 
-## AQI Distribution
+The weekly average plot shows a clear repeating seasonal pattern. AQI rises during winter months, and falls during spring and summer. LOESS trend reveals a slight long term improvement in air quality. 
 
-```{r}
-complete_data %>%
-  count(AQI_Label) %>%
-  mutate(percent = n / sum(n) * 100) %>%
-  ggplot(aes(AQI_Label, n, fill = AQI_Label)) +
-  geom_col() +
-  geom_text(aes(label = sprintf("%.1f%%", percent)), vjust = -0.5, size = 3.5) +
-  scale_fill_manual(values = aqi_colors) +
-  labs(title = "AQI Distribution (2017-2024)", x = "AQI", y = "Count")
-```
+At the beginning of 2017, there is a spike in AQI. This was caused by extremely cold January, which led to increased heating emissions [1].
 
-## Outliers
+## Outliers in data
 
 Boxplots of pollutant concentrations (µg/m³) show which pollutants drive extreme AQI values.
 
@@ -469,7 +518,7 @@ complete_data %>%
   theme(legend.position = "none", axis.text.x = element_blank())
 ```
 
-The plots show that NO2 and PM2.5 have the most frequent outlier hours. SO2, on the other hands, shows the most extreme outliers. As those readings are real world, validated sensor measurements, not errors, they are kept in the dataset.
+The plots show that NO2 and PM2.5 have the most frequent outlier hours. SO2, on the other hands, shows the most extreme outliers. As those readings are real world, validated sensor measurements, not errors, they are kept in the dataset, as they represent the most critical air quality events, which are important to predict.
 
 ## Decomposition and seasonality
 
@@ -699,3 +748,7 @@ imp <- sort(rf_model$variable.importance,decreasing = TRUE)
 barplot(imp, horiz = TRUE, las = 1, cex.names = 0.8,
         main = "RF Permutation Importance (t+24)", xlab = "% IncMSE")
 ```
+
+
+# References
+- [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
