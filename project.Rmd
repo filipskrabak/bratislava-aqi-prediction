@@ -664,14 +664,14 @@ We run the KPSS and ADF tests to check whether our series is stationary.
 
 ```{r warning=FALSE}
 tseries::kpss.test(complete_data$AQI)
-tseries::kpss.test(noise_season_year$remainder)
-tseries::kpss.test(noise_season_year_day$remainder)
+#tseries::kpss.test(noise_season_year$remainder)
+#tseries::kpss.test(noise_season_year_day$remainder)
 ```
 
 The KPSS rejects stationarity (H0: stationary), p value \< 0.01
 
 ```{r warning=FALSE}
-tseries::adf.test(complete_data$AQI)
+tseries::adf.test(na.omit(complete_data$AQI))
 ```
 
 ADF rejects the unit root (H0: series has a unit root), p value \< 0.01
@@ -680,73 +680,240 @@ This should indicate seasonal non-stationarity (trend-stationarity).
 The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
 Since this time series does not have a unit root, we will not be using differencing as that would likely lead to overdifferencing.
 
-# Random Forest — 24h ahead (minimal prototype)
+
+# Feature Engineering
+
+Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models.
 
 ```{r}
-library(ranger)
-rf_df <- complete_data %>%
+model_features <- complete_data %>%
   as_tibble() %>%
   arrange(Start) %>%
   transmute(
     Start,
-    AQI_t = AQI,
-    AQI_t1 = lag(AQI, 1), # strongest PACF
-    AQI_t2 = lag(AQI, 2), # second PACF
-    AQI_t24 = lag(AQI, 24), # 24h season
-    hour = hour(Start),
-    month = month(Start),
-    AQI_p24 = lead(AQI, 24) # predicted
+    # Target variable
+    AQI_p24 = lead(AQI, 24),
+    # Autocorrelation lags
+    AQI_t   = AQI,
+    AQI_t1  = lag(AQI, 1),
+    AQI_t2  = lag(AQI, 2),
+    AQI_t24 = lag(AQI, 24),
+    # Current pollutants
+    PM25    = `PM2.5`,
+    PM10    = PM10,
+    NO2     = NO2,
+    O3      = O3,
+    SO2     = SO2,
+    # Time
+    hour    = hour(Start),
+    month   = month(Start),
+    # Weather
+    across(c(Temperature, Humidity, Dew_Point, Rain, Precipitation,
+             Snowfall, Weather_Code, Pressure_MSL, Cloud_Cover,
+             Cloud_Cover_Low, Cloud_Cover_Mid, Cloud_Cover_High,
+             Vapour_Pressure_Def, Wind_Speed, Wind_Direction,
+             Wind_Gusts, Soil_Temp_0_7, Soil_Moisture_0_7))
   ) %>%
-  drop_na() %>%  # remove lead/lag NAs
+  drop_na() # remove lag NAs
+
+
+# No weather variables (approach 1)
+PARTITION_A <- c("AQI_t","AQI_t1","AQI_t2","AQI_t24",
+                 "PM25","PM10","NO2","O3","SO2","hour","month")
+
+# Maybe use partitioning method for this (Task 3)? (approach 2)
+PARTITION_B <- model_features %>%
+  select(-Start, -AQI_p24) %>%
+  names()
+
+```
+
+# Modelling
+
+All models are trained on 2017-2022 data and evaluated on 2023-2024.
+This split ensures no future observations leak into the training data.
+
+## Data Budgeting
+
+```{r}
+# Split model_features into train / test by year.
+train_data <- model_features %>%
+  filter(year(Start) <= 2022) %>%
+  select(-Start) %>%
+  # AQI_p24 is converted to an ordered factor (1-6) for classification.
   mutate(AQI_p24 = factor(AQI_p24, levels = 1:6, ordered = TRUE))
 
+test_data <- model_features %>%
+  filter(year(Start) >= 2023) %>%
+  select(-Start) %>%
+  mutate(AQI_p24 = factor(AQI_p24, levels = 1:6, ordered = TRUE))
 
-train_rf <- rf_df %>% filter(year(Start) <= 2022) %>% select(-Start)
-test_rf  <- rf_df %>% filter(year(Start) >= 2023) %>% select(-Start)
-
-cat("Train rows:", nrow(train_rf), " | Test rows:", nrow(test_rf), "\n")
+cat("Train rows:", nrow(train_data), " | Test rows:", nrow(test_data), "\n")
 ```
 
 ```{r}
+# Class distribution per split (imbalance check)
+bind_rows(
+  train_data %>% count(AQI_p24) %>% mutate(Split = "Train", pct = round(100 * n / sum(n), 1)),
+  test_data  %>% count(AQI_p24) %>% mutate(Split = "Test",  pct = round(100 * n / sum(n), 1))
+) %>%
+  mutate(Label = aqi_levels[as.integer(as.character(AQI_p24))]) %>%
+  select(Split, Class = AQI_p24, Label, Count = n, `Pct (%)` = pct) %>%
+  arrange(Split, Class)
+```
 
-# RF (classification, Gini splitting)
-set.seed(2026)
-rf_model <- ranger(
-  AQI_p24 ~ .,
-  data = train_rf,
-  num.trees = 300,
-  importance = "permutation",
-  num.threads = parallel::detectCores()
-)
+Classes 5 (Very poor) and 6 (Extremely poor) together make up around 0.3% of the training data.
+Models trained without correction will rarely predict these classes.
+We report per-class recall in every evaluation to make this limitation transparent.
 
-rf_model
+## Scenario 1 (Three methods across two feature approaches)
+
+Each method is evaluated on two feature sets:
+
+- **Partition A** - AQI lags + current pollutants + time 
+- **Partition B** - All features including weather variables
+
+Comparing the two partitions tests whether current weather conditions add predictive value beyond pollutant lags and time features.
+
+### Random Forest
+
+```{r}
+library(ranger)
+
+RF_NUM_TREES <- 500 # tested: 100, 300, 500 — diminishing returns above 500
+RF_MTRY <- 5 # features tried at each split, tried {4,5,6,8,10,15}, sqrt(p)=5 was optimal
+RF_MIN_NODE_SIZE <- 5 # min samples in a leaf, tried {1,3,5,10,20}, 5 balances depth vs minority recall
+RF_MAX_DEPTH <- NULL  # NULL = fully grown trees
+RF_N_THREADS <- max(1, parallel::detectCores() - 1)
+RF_SEED <- 2026
+RF_USE_CLASS_WEIGHTS <- TRUE # true - use inverse weights
+RF_WEIGHT_POWER <- 1.1 # exponent on inverse-frequency weights, tried {0.5,0.6,...,1.3}
+# 1.1: best Poor recall/ accuracy tradeoff
 ```
 
 ```{r}
-# Evaluate on test set
-preds_rf <- as.integer(as.character(predict(rf_model, test_rf)$predictions))
-actual_rf <- as.integer(as.character(test_rf$AQI_p24))
+# Computes inverse-frequency case weights for a training set (equivalent to sklearn class_weight="balanced").
+# Each sample is weighted by (1 / count_of_its_class)^power.
+# power>1 amplifies the boost for rare classes.
+compute_class_weights <- function(train_data, power = RF_WEIGHT_POWER) {
+  class_counts <- table(train_data$AQI_p24)
+  weights <- (1 / as.numeric(class_counts))^power
+  weights[as.integer(as.character(train_data$AQI_p24))]
+}
 
-rmse_rf <- sqrt(mean((actual_rf - preds_rf)^2))
-mae_rf <- mean(abs(actual_rf - preds_rf))
-acc_rf <- mean(preds_rf == actual_rf)
-w1_rf <- mean(abs(preds_rf - actual_rf) <= 1)
+# Fit RF
+fit_rf <- function(train_data, partition,
+                   num_trees = RF_NUM_TREES,
+                   mtry = RF_MTRY,
+                   min_node_size = RF_MIN_NODE_SIZE,
+                   max_depth = RF_MAX_DEPTH,
+                   n_threads = RF_N_THREADS,
+                   seed = RF_SEED,
+                   use_weights = RF_USE_CLASS_WEIGHTS,
+                   weight_power = RF_WEIGHT_POWER) {
 
-cat(sprintf("RMSE: %.4f | MAE: %.4f | Exact: %.1f%% | Within +-1 class: %.1f%%\n", rmse_rf, mae_rf, acc_rf * 100, w1_rf * 100))
+  train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  weights <- if (use_weights) compute_class_weights(train_subset, power = weight_power) else NULL
+  ranger(
+    AQI_p24 ~ .,
+    data = train_subset,
+    num.trees = num_trees,
+    mtry = mtry,
+    importance = "permutation",
+    min.node.size = min_node_size,
+    max.depth = max_depth,
+    num.threads = n_threads,
+    seed = seed,
+    case.weights = weights
+  )
+}
 
-tibble(
-  Class = 1:6,
-  Label = aqi_levels,
-  Actual = as.integer(table(factor(actual_rf, levels = 1:6))),
-  Predicted = as.integer(table(factor(preds_rf,  levels = 1:6)))
-) %>% print()
+# Computes overall test-set metrics for a fitted RF
+eval_rf <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  preds <- as.integer(as.character(predict(model, data = test_features)$predictions))
+
+  tibble(
+    # We calculate RMSE/MAE because AQI is an ordered factor.
+    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
+    MAE = round(mean(abs(actual - preds)), 4),
+    `Acc (%)` = round(mean(preds == actual) * 100, 2),
+    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2) # within 1 class
+  )
+}
+
+# Per-class recall - fraction of each true class correctly predicted
+# This helps us understand how well the model predicts individual AQI classes
+class_recall_rf <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  preds <- as.integer(as.character(predict(model, data = test_features)$predictions))
+
+  return(tibble(Class = 1:6, Label = aqi_levels) %>%
+    mutate(
+      Actual_n = map_int(Class, \(k) sum(actual == k)),
+      Pred_n = map_int(Class, \(k) sum(preds  == k)),
+      `Recall (%)` = map_dbl(Class, \(k) {
+        n_actual <- sum(actual == k)
+        if (n_actual == 0) NA_real_ else round(mean(preds[actual == k] == k) * 100, 1)
+      })
+    ))
+}
+
+# bar chart of top-20 permutation importance scores.
+plot_importance <- function(model, title = "RF Permutation Importance") {
+  tibble(
+    Feature    = names(model$variable.importance),
+    Importance = model$variable.importance
+  ) %>%
+    arrange(desc(Importance)) %>%
+    slice_head(n = 20) %>%
+    mutate(Feature = fct_reorder(Feature, Importance)) %>%
+    ggplot(aes(Importance, Feature)) +
+    geom_col(fill = "steelblue") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+    labs(title = title, x = "Permutation importance", y = NULL)
+}
 ```
 
 ```{r}
-# Feature importance
-imp <- sort(rf_model$variable.importance,decreasing = TRUE)
-barplot(imp, horiz = TRUE, las = 1, cex.names = 0.8,
-        main = "RF Permutation Importance (t+24)", xlab = "% IncMSE")
+rf_A <- fit_rf(train_data, PARTITION_A, use_weights = FALSE)
+rf_B <- fit_rf(train_data, PARTITION_B, use_weights = FALSE)
+
+rf_B_weighted <- fit_rf(train_data, PARTITION_B, use_weights = TRUE)
+```
+
+Overall performance on the 2023-2024 test set:
+
+```{r}
+evals_RF <- list(
+  "A - pollutants only" = eval_rf(rf_A, test_data, PARTITION_A),
+  "B - all features" = eval_rf(rf_B, test_data, PARTITION_B),
+  "B - all features (weighted)" = eval_rf(rf_B_weighted, test_data, PARTITION_B)
+) 
+
+evals_RF %>%
+  list_rbind(names_to = "Partition")
+```
+
+Per-class recall - how often each AQI class was correctly predicted:
+
+```{r}
+cat("--- Partition A ---\n")
+class_recall_rf(rf_A,          test_data, PARTITION_A) %>% print()
+cat("\n--- Partition B (unweighted) ---\n")
+class_recall_rf(rf_B,          test_data, PARTITION_B) %>% print()
+cat("\n--- Partition B (weighted) ---\n")
+class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% print()
+```
+
+```{r fig.height=5, fig.width=7}
+plot_importance(rf_A, "RF Permutation Importance (Partition A)")
+```
+
+```{r fig.height=5, fig.width=7}
+plot_importance(rf_B, "RF Permutation Importance (Partition B)")
 ```
 
 
