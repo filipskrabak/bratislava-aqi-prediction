@@ -28,6 +28,7 @@ library(fable)
 library(feasts)
 library(ggtime) ## gg_season
 library(tseries) # for adf.test
+library(MASS, exclude = "select") #ordinal regression polr()
 here::i_am("project.Rmd")
 ```
 
@@ -1046,6 +1047,71 @@ roc_df %>%
 
 The stronger class is Poor (AUC = 0.888), which means that model can quite reliably seapate poor air quality from safe conditions.
 Good is also quite well separated (0.780). Moderate and fair are the dominant classes in the dataset, and their AUC is 0.724 and 0.699, respectively. Very poor and extremely poor have extremely small samples which are statistically insufficient for a reliable AUC estimate.
+
+# Ordinal regression
+```{r}
+compute_class_weights_ordinal <- function(train_data, power = 0.72) {
+  class_counts <- table(train_data$AQI_p24)
+  weights <- (1 / as.numeric(class_counts))^power
+  weights[as.integer(as.character(train_data$AQI_p24))]
+}
+
+fit_ordinal <- function(train_data, partition) {
+  train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  polr(AQI_p24 ~ ., data = train_subset, Hess = T, weights = compute_class_weights_ordinal(train_subset))
+}
+
+ordinal_A <- fit_ordinal(train_data, PARTITION_A)
+summary(ordinal_A)
+ordinal_B <- fit_ordinal(train_data, PARTITION_B)
+summary(ordinal_B)
+
+```
+
+```{r}
+eval_ordinal <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  preds <- as.integer(as.character(predict(model, newdata = test_features)))
+
+  tibble(
+    # We calculate RMSE/MAE because AQI is an ordered factor.
+    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
+    MAE = round(mean(abs(actual - preds)), 4),
+    `Acc (%)` = round(mean(preds == actual) * 100, 2),
+    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2) # within 1 class
+  )
+}
+
+class_recall_ordinal <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  preds <- as.integer(as.character(predict(model, newdata = test_features)))
+
+  return(tibble(Class = 1:6, Label = aqi_levels) %>%
+    mutate(
+      Actual_n = map_int(Class, \(k) sum(actual == k)),
+      Pred_n = map_int(Class, \(k) sum(preds  == k)),
+      `Recall (%)` = map_dbl(Class, \(k) {
+        n_actual <- sum(actual == k)
+        if (n_actual == 0) NA_real_ else round(mean(preds[actual == k] == k) * 100, 1)
+      })
+    ))
+}
+
+evals_ordinal <- list(
+  "A - pollutants only" = eval_ordinal(ordinal_A, test_data, PARTITION_A),
+  "B - all features" = eval_ordinal(ordinal_B, test_data, PARTITION_B)
+) 
+
+evals_ordinal %>%
+  list_rbind(names_to = "Partition")
+
+cat("--- Partition A ---\n")
+class_recall_ordinal(ordinal_A,          test_data, PARTITION_A) %>% print()
+cat("\n--- Partition B ---\n")
+class_recall_ordinal(ordinal_B,          test_data, PARTITION_B) %>% print()
+```
 
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
