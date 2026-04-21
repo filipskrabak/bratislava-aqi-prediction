@@ -828,11 +828,19 @@ fit_rf <- function(train_data, partition,
   )
 }
 
-# Computes overall test-set metrics for a fitted RF
-eval_rf <- function(model, test_data, partition) {
+# Returns integer vectors of actual and predicted classes for a fitted RF
+predict_rf <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
-  preds <- as.integer(as.character(predict(model, data = test_features)$predictions))
+  preds  <- as.integer(as.character(predict(model, data = test_features)$predictions))
+  list(actual = actual, preds = preds)
+}
+
+# Computes overall test-set metrics for a fitted RF
+eval_rf <- function(model, test_data, partition) {
+  p      <- predict_rf(model, test_data, partition)
+  actual <- p$actual
+  preds  <- p$preds
 
   tibble(
     # We calculate RMSE/MAE because AQI is an ordered factor.
@@ -846,9 +854,9 @@ eval_rf <- function(model, test_data, partition) {
 # Per-class recall - fraction of each true class correctly predicted
 # This helps us understand how well the model predicts individual AQI classes
 class_recall_rf <- function(model, test_data, partition) {
-  test_features <- test_data %>% select(all_of(partition))
-  actual <- as.integer(as.character(test_data$AQI_p24))
-  preds <- as.integer(as.character(predict(model, data = test_features)$predictions))
+  p      <- predict_rf(model, test_data, partition)
+  actual <- p$actual
+  preds  <- p$preds
 
   return(tibble(Class = 1:6, Label = aqi_levels) %>%
     mutate(
@@ -861,12 +869,14 @@ class_recall_rf <- function(model, test_data, partition) {
     ))
 }
 
-# bar chart of top-20 permutation importance scores.
+# bar chart of top-20 permutation importance scores
 plot_importance <- function(model, title = "RF Permutation Importance") {
-  tibble(
-    Feature    = names(model$variable.importance),
+  feat_and_imp <- tibble(
+    Feature = names(model$variable.importance),
     Importance = model$variable.importance
-  ) %>%
+  ) 
+    
+  feat_and_imp%>%
     arrange(desc(Importance)) %>%
     slice_head(n = 20) %>%
     mutate(Feature = fct_reorder(Feature, Importance)) %>%
@@ -897,25 +907,144 @@ evals_RF %>%
   list_rbind(names_to = "Partition")
 ```
 
-Per-class recall - how often each AQI class was correctly predicted:
-
+Per-class recall (how often each AQI class was correctly predicted):
 ```{r}
 cat("--- Partition A ---\n")
-class_recall_rf(rf_A,          test_data, PARTITION_A) %>% print()
+class_recall_rf(rf_A, test_data, PARTITION_A) %>% 
+  print()
 cat("\n--- Partition B (unweighted) ---\n")
-class_recall_rf(rf_B,          test_data, PARTITION_B) %>% print()
+class_recall_rf(rf_B, test_data, PARTITION_B) %>% 
+  print()
 cat("\n--- Partition B (weighted) ---\n")
-class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% print()
+class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% 
+  print()
 ```
 
-```{r fig.height=5, fig.width=7}
+```{r}
 plot_importance(rf_A, "RF Permutation Importance (Partition A)")
 ```
 
-```{r fig.height=5, fig.width=7}
-plot_importance(rf_B, "RF Permutation Importance (Partition B)")
+```{r}
+plot_importance(rf_B_weighted, "RF Permutation Importance (Partition B weighted)")
 ```
 
+#### Confusion matrix
+
+```{r}
+# We take predictions from the weighted model
+preds_B_weighted <- predict_rf(rf_B_weighted, test_data, PARTITION_B)
+actual_cls <- preds_B_weighted$actual
+pred_cls <- preds_B_weighted$preds
+act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
+
+# row-normalised confusion df
+act_pred_tb %>%
+  mutate(
+    Actual = factor(Actual, levels = 1:6, labels = aqi_levels),
+    Predicted = factor(Predicted, levels = 1:6, labels = aqi_levels)
+  ) %>%
+  count(Actual, Predicted) %>%
+  complete(Actual, Predicted, fill = list(n = 0)) %>%
+  mutate(Recall = n / sum(n), .by = Actual) %>%
+  ggplot(aes(Predicted, Actual, fill = Recall)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = if_else(n > 0, sprintf("%.0f%%\n(n=%d)", Recall * 100, n), "")),  
+            size = 2.8, lineheight = 1.2) +
+  scale_fill_gradient(low = "white", high = "steelblue",
+                      labels = scales::percent, limits = c(0, 1)) +
+  scale_x_discrete(position = "top") +
+  scale_y_discrete(limits = rev(aqi_levels)) +
+  labs(
+    title = "Confusion Matrix for RF Partition B (weighted, pwr=1.1)",
+    subtitle = "Each cell = % of true class predicted as that column",
+    x = "Predicted class", y = "True (Actual) class", fill = "Recall"
+  ) +
+  theme_minimal() 
+```
+
+The confusion matrix shows recall per class on diagonal.
+The model is strong for Fair (75%) and Moderate (51%), and somewhat weaker for Poor (47%).
+Very poor and Extremely poor are never predicted. The class weight of 1.1 is not strong enough to push the decision boundary for 20 and 9 test samples.
+Most misclassifications are adjacent-class (+-1) errors (for example, Poor predicted as Moderate).
+
+#### Predicted vs. actual class distribution
+
+```{r}
+act_pred_tb %>%
+  pivot_longer(c(Actual, Predicted), names_to = "Type", values_to = "Class") %>%
+  count(Type, Class) %>%
+  mutate(Label = factor(aqi_levels[Class], levels = aqi_levels)) %>%
+  complete(Type, Label, fill = list(n = 0)) %>%
+  ggplot(aes(Label, n, fill = Type)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("Actual" = "steelblue", "Predicted" = "tomato")) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Predicted vs. actual class distribution (test set 2023-2024)",
+    x = NULL, y = "Count", fill = NULL
+  ) +
+  theme_minimal()
+```
+
+The model over-predicts Fair and under-predicts Good and Moderate.
+
+#### One vs Rest ROC and AUC
+
+One VS Rest ROC (OvR) allows us to see how tell the model separates each class from the others.
+The `ranger` package doesn't provide probability estimates without `probability = TRUE`, so we opted to train a separate probability forest for this evaluation. All parameters and hyperparameters are kept the same as the original RF to ensure a fair comparison.
+
+```{r}
+# Probability forest
+rf_B_prob <- ranger(
+  AQI_p24 ~ .,
+  data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
+  num.trees = RF_NUM_TREES,
+  mtry = RF_MTRY,
+  min.node.size = RF_MIN_NODE_SIZE,
+  num.threads = RF_N_THREADS,
+  seed = RF_SEED,
+  case.weights = compute_class_weights(train_data),
+  probability = TRUE # outputs probabilities instead of class labels
+)
+```
+
+```{r}
+library(pROC)
+
+prob_matrix <- predict(rf_B_prob, data = test_features_B)$predictions
+
+# OVR ROC
+roc_list <- map(1:6, function(k) { # loop over aqi
+  binary <- as.integer(actual_cls == k) # 1 for class k, 0 for others
+  if (length(unique(binary)) < 2) return(NULL)   # skip if no positives in test
+  roc(binary, prob_matrix[, k], quiet = TRUE)
+})
+
+# tidy data frame of all ROC curves for plotting
+roc_df <- map(1:6, function(k) {
+  if (is.null(roc_list[[k]])) return(NULL)
+  coords_df <- pROC::coords(roc_list[[k]], "all", ret = c("fpr", "tpr"), transpose = FALSE) # get FPR and TPR for all thresholds
+  coords_df$class <- aqi_levels[k] # label for the class
+  coords_df$auc <- round(pROC::auc(roc_list[[k]]), 3) # AUC for the class for legend
+  coords_df
+}) %>% list_rbind()
+
+roc_df %>%
+  mutate(label = paste0(class, "  (AUC=", auc, ")"), # 
+         label = factor(label, levels = unique(label[order(auc, decreasing = TRUE)]))) %>%
+  ggplot(aes(fpr, tpr, color = label)) +
+  geom_line(linewidth = 0.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
+  scale_color_brewer(palette = "Dark2") + # color palette
+  labs(
+    title = "One VS Rest ROC (RF Partition B weighted)",
+    x = "False Positive Rate", y = "True Positive Rate", color = "Class (AUC)"
+  ) +
+  theme_minimal()
+```
+
+The stronger class is Poor (AUC = 0.888), which means that model can quite reliably seapate poor air quality from safe conditions.
+Good is also quite well separated (0.780). Moderate and fair are the dominant classes in the dataset, and their AUC is 0.724 and 0.699, respectively. Very poor and extremely poor have extremely small samples which are statistically insufficient for a reliable AUC estimate.
 
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
