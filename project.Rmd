@@ -1020,17 +1020,18 @@ roc_list <- map(1:6, function(k) { # loop over aqi
   roc(binary, prob_matrix[, k], quiet = TRUE)
 })
 
-# tidy data frame of all ROC curves for plotting
+# tidy data frame of all ROC curves for plotting (for ggplot)
+# bit more complex, but allows us to use more pretty ggplot with ordering
 roc_df <- map(1:6, function(k) {
   if (is.null(roc_list[[k]])) return(NULL)
-  coords_df <- pROC::coords(roc_list[[k]], "all", ret = c("fpr", "tpr"), transpose = FALSE) # get FPR and TPR for all thresholds
+  coords_df <- pROC::coords(roc_list[[k]], "all", ret = c("fpr", "tpr")) # get FPR and TPR for all thresholds
   coords_df$class <- aqi_levels[k] # label for the class
   coords_df$auc <- round(pROC::auc(roc_list[[k]]), 3) # AUC for the class for legend
   coords_df
 }) %>% list_rbind()
 
 roc_df %>%
-  mutate(label = paste0(class, "  (AUC=", auc, ")"), # 
+  mutate(label = paste0(class, "  (AUC=", auc, ")"), # label for the legend
          label = factor(label, levels = unique(label[order(auc, decreasing = TRUE)]))) %>%
   ggplot(aes(fpr, tpr, color = label)) +
   geom_line(linewidth = 0.8) +
