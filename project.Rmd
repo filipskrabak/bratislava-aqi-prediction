@@ -681,6 +681,60 @@ This should indicate seasonal non-stationarity (trend-stationarity).
 The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
 Since this time series does not have a unit root, we will not be using differencing as that would likely lead to overdifferencing.
 
+## Predictor Correlations
+
+To see possible multicollinearity and relationships between main predictors, we use the pairs plot.
+A random sample of 3 000 rows is used (due to performance).
+
+```{r fig.height=10, fig.width=10, warning=FALSE}
+# correlation on upper panels
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...) {
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r     <- cor(x, y, use = "complete.obs")
+  r_abs <- abs(r)
+  txt   <- format(round(r, digits), nsmall = digits)
+  txt   <- paste0(prefix, txt)
+  if (missing(cex.cor)) cex.cor <- 0.8 / strwidth(txt)
+  col <- if (r >= 0) "firebrick" else "steelblue"
+  text(0.5, 0.5, txt, cex = cex.cor * (0.5 + r_abs) / 1.5, col = col)
+}
+
+# histogram on the diagonal
+panel.hist <- function(x, ...) {
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5))
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y / max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, col = "steelblue", border = "white")
+}
+
+set.seed(42)
+pairs_data <- complete_data %>%
+  as_tibble() %>%
+  rename(PM25 = `PM2.5`) %>% # for clarity
+  select(PM25, PM10, NO2, O3, SO2, AQI,
+         Temperature, Humidity, Wind_Speed, Pressure_MSL) %>%
+  drop_na() %>%
+  slice_sample(n = 3000)
+
+pairs(pairs_data,
+      lower.panel = panel.smooth,
+      upper.panel = panel.cor,
+      diag.panel  = panel.hist,
+      main = "Pred. relationships and correlations (n = 3 000)")
+```
+
+The pairs plot reveals several notable patterns.
+PM2.5 and PM10 are strongly correlated (r = 0.85), which indicates that they largely capture the same signal.
+NO2 is moderately correlated with PM2.5 and PM10 (r = 0.41), as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
+O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10. O3 is also nearly uncorrelated with AQI (r = -0.04) as it is only the main driver in around 11% of hours, and its relationship with AQI isn't linear.
+Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation. The AQI correlation is near zero (r = -0.03).
+Humudity is strongly negatively correlated with O3 (r = −0.73). Dry and sunny conditions drive high ozone. AQI correlation is near zero (r = −0.04).
+Wind speed is negatively correlated with AQI (r = -0.33) and with most pollutants, as higher wind disperses pollution.
+Pressure is weakly positively correlated with AQI (r = 0.13).
+
 
 # Feature Engineering
 
@@ -1049,69 +1103,154 @@ The stronger class is Poor (AUC = 0.888), which means that model can quite relia
 Good is also quite well separated (0.780). Moderate and fair are the dominant classes in the dataset, and their AUC is 0.724 and 0.699, respectively. Very poor and extremely poor have extremely small samples which are statistically insufficient for a reliable AUC estimate.
 
 # Ordinal regression
+
 ```{r}
-compute_class_weights_ordinal <- function(train_data, power = 0.72) {
+ORDINAL_WEIGHT_POWER <- 0.2 # 0 = no reweighting, 1 = fully balanced
+
+# polr() treats weights as frequency weights (each row counts as w observations)
+# Weights must sum to nrow(train_subset) so the effective sample size equals the actual sample size.
+compute_class_weights_ordinal <- function(train_data, power = ORDINAL_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
-  weights <- (1 / as.numeric(class_counts))^power
-  weights[as.integer(as.character(train_data$AQI_p24))]
+  w_raw     <- (1 / as.numeric(class_counts))^power
+  w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
+  # Normalize so weights sum to n (preserves effective sample size)
+  w_per_row / sum(w_per_row) * nrow(train_data)
 }
 
 fit_ordinal <- function(train_data, partition) {
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
-  polr(AQI_p24 ~ ., data = train_subset, Hess = T, weights = compute_class_weights_ordinal(train_subset))
+  polr(AQI_p24 ~ ., data = train_subset, Hess = TRUE,
+       weights = compute_class_weights_ordinal(train_subset))
 }
 
 ordinal_A <- fit_ordinal(train_data, PARTITION_A)
-summary(ordinal_A)
 ordinal_B <- fit_ordinal(train_data, PARTITION_B)
-summary(ordinal_B)
-
 ```
+
+### Coefficient table with p-values
+
+`polr` only outputs t-values; p-values must be derived from the normal approximation (valid for large n).
+
+```{r}
+polr_summary_table <- function(model) {
+  tbl <- as.data.frame(coef(summary(model)))
+  tbl$p_value <- pnorm(abs(tbl[, "t value"]), lower.tail = FALSE) * 2
+  round(tbl[, c("Value", "Std. Error", "t value", "p_value")], 4)
+}
+
+cat("=== Partition A ===\n"); print(polr_summary_table(ordinal_A))
+cat("\n=== Partition B ===\n"); print(polr_summary_table(ordinal_B))
+```
+
+### Goodness of fit - McFadden R2
+
+```{r}
+library(performance)
+
+cat("Partition A:\n"); print(r2_mcfadden(ordinal_A))
+cat("Partition B:\n"); print(r2_mcfadden(ordinal_B))
+```
+
+### Performance evaluation
 
 ```{r}
 eval_ordinal <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
-  preds <- as.integer(as.character(predict(model, newdata = test_features)))
-
+  preds  <- as.integer(as.character(predict(model, newdata = test_features)))
   tibble(
-    # We calculate RMSE/MAE because AQI is an ordered factor.
     RMSE = round(sqrt(mean((actual - preds)^2)), 4),
-    MAE = round(mean(abs(actual - preds)), 4),
+    MAE  = round(mean(abs(actual - preds)), 4),
     `Acc (%)` = round(mean(preds == actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2) # within 1 class
+    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2)
   )
 }
 
 class_recall_ordinal <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
-  preds <- as.integer(as.character(predict(model, newdata = test_features)))
-
-  return(tibble(Class = 1:6, Label = aqi_levels) %>%
+  preds  <- as.integer(as.character(predict(model, newdata = test_features)))
+  tibble(Class = 1:6, Label = aqi_levels) %>%
     mutate(
-      Actual_n = map_int(Class, \(k) sum(actual == k)),
-      Pred_n = map_int(Class, \(k) sum(preds  == k)),
+      Actual_n     = map_int(Class, \(k) sum(actual == k)),
+      Pred_n       = map_int(Class, \(k) sum(preds  == k)),
       `Recall (%)` = map_dbl(Class, \(k) {
         n_actual <- sum(actual == k)
-        if (n_actual == 0) NA_real_ else round(mean(preds[actual == k] == k) * 100, 1)
+        if (n_actual == 0) NA_real_
+        else round(mean(preds[actual == k] == k) * 100, 1)
       })
-    ))
+    )
 }
 
-evals_ordinal <- list(
+list(
   "A - pollutants only" = eval_ordinal(ordinal_A, test_data, PARTITION_A),
-  "B - all features" = eval_ordinal(ordinal_B, test_data, PARTITION_B)
-) 
-
-evals_ordinal %>%
+  "B - all features"    = eval_ordinal(ordinal_B, test_data, PARTITION_B)
+) %>%
   list_rbind(names_to = "Partition")
 
 cat("--- Partition A ---\n")
-class_recall_ordinal(ordinal_A,          test_data, PARTITION_A) %>% print()
+class_recall_ordinal(ordinal_A, test_data, PARTITION_A) %>% print()
 cat("\n--- Partition B ---\n")
-class_recall_ordinal(ordinal_B,          test_data, PARTITION_B) %>% print()
+class_recall_ordinal(ordinal_B, test_data, PARTITION_B) %>% print()
 ```
+
+### Assumption check: Proportional Odds (Brant test)
+
+The core assumption of `polr` is proportional odds: every predictor must have the *same* log-odds effect at every cumulative cutpoint (parallel regression lines).
+
+The `brant` function requires the training data to be in the calling environment, so we fit the model directly here (same parameters as `ordinal_A`).
+
+```{r message=FALSE}
+library(brant)
+
+# brant() looks up the data object by name from the polr model call, so the data must exist as a named variable in the current environment.
+train_subset_A_brant <- train_data %>% select(all_of(c(PARTITION_A, "AQI_p24")))
+ordinal_A_brant <- polr(AQI_p24 ~ ., data = train_subset_A_brant, Hess = TRUE,
+                        weights = compute_class_weights_ordinal(train_subset_A_brant))
+
+cat("=== Brant test - Partition A ===\n")
+print(brant(ordinal_A_brant))
+```
+
+H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across cutpoints. The PO assumption is violated.
+
+### Coefficient stability across cutpoints
+
+Fitting five separate binary logistic models (one per cumulative cutpoint) and overlaying their coefficients shows *how* the effect changes across the scale. Flat lines support the PO assumption; sloping or crossing lines indicate violation.
+
+```{r fig.height=6, fig.width=9}
+train_for_binom <- train_data %>%
+  select(all_of(c(PARTITION_A, "AQI_p24"))) %>%
+  mutate(AQI_num = as.numeric(as.character(AQI_p24)))
+
+cutpoint_coefs <- map_dfr(1:5, function(k) {
+  fit <- glm(I(AQI_num <= k) ~ AQI_t + AQI_t1 + AQI_t2 + AQI_t24 +
+               PM25 + PM10 + NO2 + O3 + SO2 + hour + month,
+             data = train_for_binom, family = binomial)
+  tibble(
+    Cutpoint = paste0("<=", k),
+    Predictor = names(coef(fit))[-1],
+    Coef = coef(fit)[-1]
+  )
+})
+
+cutpoint_coefs %>%
+  ggplot(aes(x = Cutpoint, y = Coef, group = Predictor)) +
+  geom_line(linewidth = 0.7, color = "steelblue") +
+  geom_point(size = 2, color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  facet_wrap(~Predictor, scales = "free_y", nrow = 3) +
+  labs(
+    title = "Proportional Odds check: coefficient stability across cutpoints",
+    subtitle = "Flat lines = PO holds. Varying lines = PO violated.",
+    x = "Cumulative cutpoint", y = "Logit coefficient"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+O3, NO2, PM25, hour, and month show clearly non-constant effects across cutpoints, confirming the Brant test. AQI_t1, AQI_t2, and PM10 are the only predictors for which PO holds. This means the standard `polr` model is misspecified for this data and a multinomial or partial-PO model would be more appropriate.
 
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
+- [2] [European Air Quality Index](https://www.eea.europa.eu/en/analysis/maps-and-charts/index)
