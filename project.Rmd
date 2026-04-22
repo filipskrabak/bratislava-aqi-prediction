@@ -804,12 +804,108 @@ model_features <- complete_data %>%
 PARTITION_A <- c("AQI_t","AQI_t1","AQI_t2","AQI_t24",
                  "PM25","PM10","NO2","O3","SO2","hour","month")
 
-# Maybe use partitioning method for this (Task 3)? (approach 2)
-PARTITION_B <- model_features %>%
+# All features including weather (approach 2)
+PARTITION_B_ALL <- model_features %>%
   select(-Start, -AQI_p24) %>%
   names()
 
 ```
+
+## Collinearity Analysis (VIF)
+
+Partition B includes all 18 weather features, on top of pollutants (Partition A). Before any model is fitted, we should check whether we have multicollinearity among the predictors (whether two predictors carry almost identical information). This could make our feature importance in RF unreliable, for example.
+
+We opted to use VIF (Variance Inflation Factor), as it can look at multivariate relationships among features, while correlation only looks at pairwise relationships.
+
+```{r}
+library(car)
+
+vif_func <- function(x) {
+  y <- seq_len(nrow(x))
+  vif(lm(y ~ ., data = x))
+}
+
+x_B <- train_data %>% select(all_of(PARTITION_B_ALL))
+vif_initial <- vif_func(x_B)
+
+tibble(Feature = names(vif_initial), VIF = round(vif_initial, 1)) %>%
+  arrange(desc(VIF)) %>%
+  print(n = 30)
+```
+
+From the VIF results, we can see that several features have extreme VIF values, three above 1000, and two above 100. Now we take a look at pairwise correlations among the high-VIF features (above 10) to understand this collinearity better.
+
+```{r}
+high_vif_features <- c("Rain", "Precipitation", "Snowfall",
+                        "Temperature", "Dew_Point", "Soil_Temp_0_7",
+                        "Humidity", "Vapour_Pressure_Def",
+                        "Wind_Speed", "Wind_Gusts")
+
+cor_hv <- train_data %>%
+  select(all_of(high_vif_features)) %>%
+  cor(use = "complete.obs")
+
+cor_hv %>%
+  as.data.frame() %>%
+  rownames_to_column("Var1") %>%
+  pivot_longer(-Var1, names_to = "Var2", values_to = "r") %>%
+  mutate(
+    Var1 = factor(Var1, levels = high_vif_features),
+    Var2 = factor(Var2, levels = rev(high_vif_features))
+  ) %>%
+  ggplot(aes(Var1, Var2, fill = r)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(r, 2)), size = 3) +
+  scale_fill_gradient2(low = "#4f7aa7", mid = "white", high = "#dc5355",
+                       midpoint = 0, limits = c(-1, 1)) +
+  labs(
+    title = "Correlation for high VIF features",
+    x = NULL, y = NULL, fill = "r"
+  ) +
+  theme_minimal()
+```
+
+From the plot, there are three groups of features that are highly correlated with each other clearly visible.
+
+Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because other variables because snowfalls variance can be explained by combination of other features (temperature, humidity, etc.).
+Temperature group - Temperature, Dew_Point, Soil_Temp_0_7, Humidity, and Vapour_Pressure_Def all measure very similar aspects.
+Wind group - Wind_Speed and Wind_Gusts have a strong correlation (r = 0.94).
+
+
+We also remove some features based on domain knowledge.
+
+```{r}
+# Features removed based on domain knowledge
+to_remove <- c(
+  "Precipitation", # aggregate of Rain + Snowfall
+  "Humidity", # relative humidity is temperature-dependent, Dew_Point can capture moisture
+  "Vapour_Pressure_Def", # calculated from Temperature + Humidity (redundant)
+  "Soil_Temp_0_7", # Dew_Point captures this
+  "Temperature", # collinear with Dew_Point (and Dew_Point correlates better with AQI)
+  "Wind_Gusts", # captures transient peaks, Wind_Speed captures average 24-hour pollutant dispersion (r = 0.94)
+  "PM10"  # collinear with PM2.5 (r = 0.86) and PM2.5 is weighted more heavily (worse health effect)
+)
+```
+
+Now we run VIF again after removing the 7 features above, to see the max VIF
+
+```{r}
+PARTITION_B <- PARTITION_B_ALL %>% discard(~ .x %in% to_remove)
+
+x_clean <- train_data %>% select(all_of(PARTITION_B))
+vif_final <- vif_func(x_clean)
+
+tibble(
+  set     = c("Retained", "Dropped", "Max VIF"),
+  value   = c(paste(PARTITION_B, collapse = ", "),
+              paste(to_remove, collapse = ", "),
+              round(max(vif_final), 2))
+) %>% print(n = Inf, width = Inf)
+```
+
+We removed 7 features.
+
+The final clean partition has 22 features with max VIF of 4.5, which is acceptable.
 
 # Modelling
 
