@@ -797,7 +797,15 @@ model_features <- complete_data %>%
              Vapour_Pressure_Def, Wind_Speed, Wind_Direction,
              Wind_Gusts, Soil_Temp_0_7, Soil_Moisture_0_7))
   ) %>%
-  drop_na() # remove lag NAs
+  drop_na() %>% # remove lag NAs
+  # WMO Weather codes are categorical (not ordinal), so we group them into 4 categories based on the weather (we observe 13 codes)
+  # This avoids models potentially treating them as ordinal (1-99)
+  mutate(Weather_Code = case_when(
+    Weather_Code %in% c(0, 1, 2, 3) ~ 1L, # clear / clouds forming
+    Weather_Code %in% c(51, 53, 55) ~ 2L, # drizzle
+    Weather_Code %in% c(61, 63, 65) ~ 3L, # rain
+    Weather_Code %in% c(71, 73, 75) ~ 4L # snow
+  ))
 
 
 # No weather variables (approach 1)
@@ -1142,7 +1150,7 @@ act_pred_tb %>%
 ```
 
 The confusion matrix shows recall per class on the diagonal.
-The model is strong for Fair (71.6%) and Moderate (48.7%). With class weighting (power 1.1), Poor recall rises to **52.6%**, which is a meaningful improvement over the unweighted model (7.8%).
+The model is strong for Fair (71.8%) and Moderate (49.1%). With class weighting (power 1.1), Poor recall rises to **53.3%**, which is a meaningful improvement over the unweighted model (8%).
 Most misclassifications are adjacent-class (+-1) errors (for example, Poor predicted as Moderate, or Good predicted as Fair).
 
 #### Predicted vs. actual class distribution
