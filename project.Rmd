@@ -1388,8 +1388,7 @@ class_recall_partial <- function(model, test_data, partition) {
 }
 
 list(
-  "A - pollutants only" = eval_partial(partial_A, test_data, PARTITION_A),
-  "B - all features"    = eval_partial(partial_B, test_data, PARTITION_B)
+  "A - pollutants only" = eval_partial(partial_A, test_data, PARTITION_A)
 ) %>%
   list_rbind(names_to = "Partition")
 
