@@ -1249,9 +1249,10 @@ compute_class_weights_ordinal <- function(train_data, power = ORDINAL_WEIGHT_POW
 }
 
 fit_ordinal <- function(train_data, partition) {
-  train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
-  polr(AQI_p24 ~ ., data = train_subset, Hess = TRUE,
-       weights = compute_class_weights_ordinal(train_subset))
+  train_subset_ordinal <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  polr(AQI_p24 ~ ., data = train_subset_ordinal, Hess = TRUE,
+       weights = compute_class_weights_ordinal(train_subset_ordinal),
+       method = "logistic")
 }
 
 ordinal_A <- fit_ordinal(train_data, PARTITION_A)
@@ -1273,22 +1274,23 @@ cat("=== Partition A ===\n"); print(polr_summary_table(ordinal_A))
 cat("\n=== Partition B ===\n"); print(polr_summary_table(ordinal_B))
 ```
 
-#### Goodness of fit - McFadden R2
+#### Goodness of fit
 
+Performing a goodness-of-fit test tell us if the expected distribution is different from predicted one. As the p_value < 0.05, we can reject the null hypothesis and conclude that these distributions are different. This means that the models pridicting power is low.
 ```{r}
-library(performance)
-
-cat("Partition A:\n"); print(r2_mcfadden(ordinal_A))
-cat("Partition B:\n"); print(r2_mcfadden(ordinal_B))
+chisq.test(train_data$AQI_p24, predict(ordinal_A))
+chisq.test(train_data$AQI_p24, predict(ordinal_B))
 ```
 
 #### Performance evaluation
 
+The overall perfomrance and class recall metrics.
 ```{r}
 eval_ordinal <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
   preds  <- as.integer(as.character(predict(model, newdata = test_features)))
+  print(preds)
   tibble(
     RMSE = round(sqrt(mean((actual - preds)^2)), 4),
     MAE  = round(mean(abs(actual - preds)), 4),
@@ -1327,61 +1329,73 @@ class_recall_ordinal(ordinal_B, test_data, PARTITION_B) %>% print()
 
 #### Assumption check: Proportional Odds (Brant test)
 
-The core assumption of `polr` is proportional odds: every predictor must have the *same* log-odds effect at every cumulative cutpoint (parallel regression lines).
-
-The `brant` function requires the training data to be in the calling environment, so we fit the model directly here (same parameters as `ordinal_A`).
+The core assumption of ordinal regression is proportional odds, the coefficients that desribe relationship between categories are same. 
 
 ```{r message=FALSE}
-library(brant)
-
-# brant() looks up the data object by name from the polr model call, so the data must exist as a named variable in the current environment.
-train_subset_A_brant <- train_data %>% select(all_of(c(PARTITION_A, "AQI_p24")))
-ordinal_A_brant <- polr(AQI_p24 ~ ., data = train_subset_A_brant, Hess = TRUE,
-                        weights = compute_class_weights_ordinal(train_subset_A_brant))
-
-cat("=== Brant test - Partition A ===\n")
-print(brant(ordinal_A_brant))
+cat("=== Brant test ===\n")
+poTest(ordinal_A)
+poTest(ordinal_B)
 ```
 
-H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across cutpoints. The PO assumption is violated.
+H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors are violating this assumption, making the modeled probabilities inccorect for categories. 
 
-#### Coefficient stability across cutpoints
+# Partial Proportional Odds
+As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportioanl odds model which relaxes this assumption on predictors that violates it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories.
 
-Fitting three separate binary logistic models (one per cumulative cutpoint: <=1, <=2, <=3) and overlaying their coefficients shows *how* the effect changes across the scale. Flat lines support the PO assumption; sloping or crossing lines indicate violation.
+```{r}
+library(VGAM)
+fit_partial <- function(train_data, partition) {
+  train_subset_partial <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  vglm(AQI_p24 ~ ., data = train_subset_partial,
+       family = cumulative(parallel = TRUE ~ -1 + AQI_t2 + PM10))
+}
 
-```{r fig.height=6, fig.width=9}
-train_for_binom <- train_data %>%
-  select(all_of(c(PARTITION_A, "AQI_p24"))) %>%
-  mutate(AQI_num = as.numeric(as.character(AQI_p24)))
+partial_A <- fit_partial(train_data, PARTITION_A)
+#partial_B <- fit_partial(train_data, PARTITION_B)
+summary(partial_A)
+```
+In partition B, there is a much bigger number of predictors than in A. As only small amount of these do not violate PO assumption, this model is basically very close to multinominal regression (both are actually) and we need to estimate coefficients for every predictor for every category. That requires that every combination can be assigned some probability. Problem arises if the estimated probabilities are close to 0 or 1 respectively, as the link functions are based on logharitms, making the estimation unstable.   
 
-cutpoint_coefs <- map_dfr(1:3, function(k) {
-  fit <- glm(I(AQI_num <= k) ~ AQI_t + AQI_t1 + AQI_t2 + AQI_t24 +
-               PM25 + PM10 + NO2 + O3 + SO2 + hour + month,
-             data = train_for_binom, family = binomial)
+```{r}
+eval_partial <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  probs  <- predictvglm(model, newdata = test_features, type="response")
+  preds <- max.col(probs)
   tibble(
-    Cutpoint = paste0("<= ", k),
-    Predictor = names(coef(fit))[-1],
-    Coef = coef(fit)[-1]
+    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
+    MAE  = round(mean(abs(actual - preds)), 4),
+    `Acc (%)` = round(mean(preds == actual) * 100, 2),
+    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2)
   )
-})
+}
 
-cutpoint_coefs %>%
-  ggplot(aes(x = Cutpoint, y = Coef, group = Predictor)) +
-  geom_line(linewidth = 0.7, color = "steelblue") +
-  geom_point(size = 2, color = "steelblue") +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
-  facet_wrap(~Predictor, scales = "free_y", nrow = 3) +
-  labs(
-    title = "Proportional Odds check: coefficient stability across cutpoints",
-    subtitle = "Flat lines = PO holds. Varying lines = PO violated.",
-    x = "Cumulative cutpoint", y = "Logit coefficient"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+class_recall_partial <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  probs  <- predictvglm(model, newdata = test_features, type="response")
+  preds <- max.col(probs)
+  tibble(Class = 1:4, Label = aqi_levels) %>%
+    mutate(
+      Actual_n     = map_int(Class, \(k) sum(actual == k)),
+      Pred_n       = map_int(Class, \(k) sum(preds  == k)),
+      `Recall (%)` = map_dbl(Class, \(k) {
+        n_actual <- sum(actual == k)
+        if (n_actual == 0) NA_real_
+        else round(mean(preds[actual == k] == k) * 100, 1)
+      })
+    )
+}
+
+list(
+  "A - pollutants only" = eval_partial(partial_A, test_data, PARTITION_A),
+  "B - all features"    = eval_partial(partial_B, test_data, PARTITION_B)
+) %>%
+  list_rbind(names_to = "Partition")
+
+cat("--- Partition A ---\n")
+class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
-
-O3, NO2, PM25, hour, and month show clearly non-constant effects across cutpoints, confirming the Brant test. AQI_t1, AQI_t2, and PM10 are the only predictors for which PO holds. This means the standard `polr` model is misspecified for this data and a multinomial or partial-PO model would be more appropriate.
-
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
 - [2] [European Air Quality Index](https://www.eea.europa.eu/en/analysis/maps-and-charts/index)
