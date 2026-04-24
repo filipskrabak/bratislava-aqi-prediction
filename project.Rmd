@@ -30,6 +30,7 @@ library(ggtime) ## gg_season
 library(tseries) # for adf.test
 library(MASS, exclude = "select") #ordinal regression polr()
 here::i_am("project.Rmd")
+set.seed(2026) # reproducibility
 ```
 
 # Introduction
@@ -738,7 +739,6 @@ panel.hist <- function(x, ...) {
   rect(breaks[-nB], 0, breaks[-1], y, col = "steelblue", border = "white")
 }
 
-set.seed(42)
 pairs_data <- complete_data %>%
   as_tibble() %>%
   rename(PM25 = `PM2.5`) %>% # for clarity
@@ -1233,6 +1233,166 @@ roc_df %>%
 The strongest class is **Poor (AUC = 0.889)**, meaning the model reliably separates poor air quality from safe conditions.
 Good is also well separated (AUC = 0.776). Moderate and Fair, being the dominant classes, are harder to distinguish from each other: AUC = 0.728 and 0.700, respectively.
 
+### k-Nearest Neighbours (kNN)
+
+kNN is a distance based method, which uses Euclidean distance to find the k closest training observations to each test observation, then classifies the test observation based on the majority class among those neighbors.
+kNN has the assumption that similar points can be found near one another.
+
+This model assumes meaningful distances between feature vectors, so all numeric features are z-score scaled to ensure no single feature dominates the distance calculation.
+
+```{r}
+library(kknn) # weighted kNN
+
+KNN_K_A <- 98 # tuned by LOO-CV; plateau visible above k ~ 80
+KNN_K_B <- 72 # tuned by LOO-CV
+KNN_KERNEL_A <- "triangular" # distance-weighted voting: nearer neighbours count more
+KNN_KERNEL_B <- "triangular"   # chosen by LOO-CV for Partition B
+KNN_DISTANCE <- 2 # p=2 = Euclidean distance
+KNN_TUNE_N <- 5000 # training rows used for LOO-CV tuning
+KNN_KMAX <- 150 # upper bound for k search
+```
+
+#### Hyperparameter Tuning
+
+We do LOOCV (Leave One Out Cross Validation) for k = 1 to KNN_MAX to find the optimal k and kernel. 
+```{r}
+# subsample for tuning
+tune_sample_idx <- sample(nrow(train_data), KNN_TUNE_N)
+
+# kernels to try
+kernels <- c("rectangular", "triangular", "epanechnikov")
+
+# tuning
+tune_knn_cv <- function(partition) {
+  s <- train_data[tune_sample_idx, ] %>% select(all_of(c(partition, "AQI_p24")))
+  train.kknn(AQI_p24 ~ ., data = s, kmax = KNN_KMAX,
+             kernel = kernels,
+             distance = KNN_DISTANCE, scale = TRUE)
+}
+
+cv_knn_A <- tune_knn_cv(PARTITION_A)
+cv_knn_B <- tune_knn_cv(PARTITION_B)
+
+```
+
+```{r}
+
+loo_curve <- function(cv_obj, part_label) {
+  map_dfr(kernels, function(k_name) {
+    tibble(k = seq_len(nrow(cv_obj$MISCLASS)),
+           acc = 1 - cv_obj$MISCLASS[, k_name],
+           kernel = k_name,
+           partition = part_label)
+  })
+}
+
+loo_all <- bind_rows(
+  loo_curve(cv_knn_A, "A - pollutants only"),
+  loo_curve(cv_knn_B, "B - all features")
+)
+
+best_pts <- loo_all %>%
+  slice_max(acc, n = 1, with_ties = FALSE, by = c(partition, kernel))
+
+loo_all %>%
+  ggplot(aes(k, acc * 100, color = kernel)) +
+  geom_line(linewidth = 0.9, alpha = 0.85) +
+  geom_point(data = best_pts, aes(k, acc * 100),
+             size = 3, shape = 21, fill = "white", stroke = 1.5) +
+  facet_wrap(~ partition) +
+  scale_color_manual(values = c("rectangular"  = "#2c7bb6",
+                                "triangular"   = "#d7191c",
+                                "epanechnikov" = "#1a9641")) +
+  labs(
+    title    = "kNN LOOCV (n = 5 000)",
+    subtitle = paste0(
+      "Partition A: k=", KNN_K_A, " ", KNN_KERNEL_A, " (",
+      round((1 - min(cv_knn_A$MISCLASS[, KNN_KERNEL_A])) * 100, 1), "%)  |  ",
+      "Partition B: k=", KNN_K_B, " ", KNN_KERNEL_B, " (",
+      round((1 - min(cv_knn_B$MISCLASS[, KNN_KERNEL_B])) * 100, 1), "%)"
+    ),
+    x = "k (neighbours)", y = "LOO Accuracy (%)", color = "Kernel"
+  ) +
+  theme_minimal()
+```
+
+The accuracy curve plateaus around k = 80–100 for Partition A and k = 50–60 for Partition B.
+Weighted kernels (triangular, Epanechnikov) consistently outperform rectangular voting because they down-weight distant neighbours — neighbours that share only a superficial similarity contribute less to the vote.
+
+#### Running KNN and Evaluation
+
+Since KNN is a lazy learner, there is no separate fit (training) step, and it stores no parameters. It requires training set at inference time.
+
+```{r}
+fit_knn <- function(train_data, test_data, partition, k, kernel,
+                    distance = KNN_DISTANCE) {
+  train_sub <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  test_sub  <- test_data  %>% select(all_of(c(partition, "AQI_p24")))
+  kknn(AQI_p24 ~ .,
+       train = train_sub,
+       test  = test_sub,
+       k = k,
+       distance = distance,
+       kernel = kernel,
+       scale = TRUE)  # scaling due to kNN sensitivity
+}
+
+eval_knn <- function(knn_fit, test_data) {
+  predicted <- as.integer(as.character(fitted(knn_fit)))
+  actual    <- as.integer(as.character(test_data$AQI_p24))
+  keep      <- !is.na(actual)  # exclude trailing rows where 24-hour lead is unavailable
+  predicted <- predicted[keep]
+  actual    <- actual[keep]
+  tibble(
+    RMSE                = round(sqrt(mean((predicted - actual)^2)), 4),
+    MAE                 = round(mean(abs(predicted - actual)), 4),
+    `Acc (%)`           = round(100 * mean(predicted == actual), 2),
+    `+-1 Class Acc (%)` = round(100 * mean(abs(predicted - actual) <= 1), 2)
+  )
+}
+
+class_recall_knn <- function(knn_fit, test_data) {
+  predicted <- as.integer(as.character(fitted(knn_fit)))
+  actual    <- as.integer(as.character(test_data$AQI_p24))
+  keep      <- !is.na(actual)
+  predicted <- predicted[keep]
+  actual    <- actual[keep]
+  tibble(Class = 1:4, Label = aqi_levels) %>%
+    mutate(
+      Actual_n     = sapply(Class, function(k) sum(actual == k)),
+      Pred_n       = sapply(Class, function(k) sum(predicted == k)),
+      `Recall (%)` = sapply(Class, function(k) {
+        n <- sum(actual == k)
+        if (n == 0) NA_real_ else round(100 * mean(predicted[actual == k] == k), 1)
+      })
+    )
+}
+```
+
+```{r}
+knn_A <- fit_knn(train_data, test_data, PARTITION_A, k = KNN_K_A, kernel = KNN_KERNEL_A)
+knn_B <- fit_knn(train_data, test_data, PARTITION_B, k = KNN_K_B, kernel = KNN_KERNEL_B)
+
+list(
+  "A - pollutants only" = eval_knn(knn_A, test_data),
+  "B - all features"    = eval_knn(knn_B, test_data)
+) %>%
+  list_rbind(names_to = "Partition")
+
+cat("--- Partition A ---\n")
+class_recall_knn(knn_A, test_data) %>% print()
+cat("\n--- Partition B ---\n")
+class_recall_knn(knn_B, test_data) %>% print()
+```
+
+Partition B overperforms A by a few percent, which again confirms that weather features add predictive value beyond pollutant lags.
+Both partitions achieve >= 97.9% +-1 class accuracy, meaning that when the model is wrong it is almost always off by just one AQI category.
+
+Compared to RF, kNN does not offer class weight parameter. This means that kNN is affected by class imbalance more severely, as the imbalance directly shapes its predictions (model almost never outputs Good or Poor).
+
+We also tried oversampling the training data, which helped for Poor recall, but overall accuracy dropped significantly (to 47.1%), along with +-1 accuracy. 
+We opted not to include that model, as the trade off is worse than the class weighting approach used for RF.
+
 ### Ordinal regression
 
 ```{r}
@@ -1395,6 +1555,7 @@ list(
 cat("--- Partition A ---\n")
 class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
+
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
 - [2] [European Air Quality Index](https://www.eea.europa.eu/en/analysis/maps-and-charts/index)
