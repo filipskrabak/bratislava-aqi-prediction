@@ -1717,14 +1717,6 @@ cat("=== Partition A ===\n"); print(polr_summary_table(ordinal_A))
 cat("\n=== Partition B ===\n"); print(polr_summary_table(ordinal_B))
 ```
 
-#### Goodness of fit
-
-Performing a goodness-of-fit test tell us if the expected distribution is different from predicted one. As the p_value < 0.05, we can reject the null hypothesis and conclude that these distributions are different. This means that the models pridicting power is low.
-```{r}
-chisq.test(train_data$AQI_p24, predict(ordinal_A))
-chisq.test(train_data$AQI_p24, predict(ordinal_B))
-```
-
 #### Performance evaluation
 
 The overall perfomrance and class recall metrics.
@@ -1838,6 +1830,135 @@ list(
 cat("--- Partition A ---\n")
 class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
+
+### Multinomial regression
+The partial proportional odds model is very close to the full muntinomial regression as only two features are fulfilling the PO assumption. The next step is to try to fit full muntinomial regression, even though the improvment will be very small if at all.
+```{r}
+library(nnet)
+
+MULTINOMIAL_WEIGHT_POWER <- 0.2 # 0 = no reweighting, 1 = fully balanced
+compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
+  class_counts <- table(train_data$AQI_p24)
+  w_raw     <- (1 / as.numeric(class_counts))^power
+  w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
+  # Normalize so weights sum to n (preserves effective sample size)
+  w_per_row / sum(w_per_row) * nrow(train_data)
+}
+
+fit_multinom <- function(train_data, partition) {
+  train_subset_multinom <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  multinom(AQI_p24 ~ ., data = train_subset_multinom,
+            Hess = TRUE, model = TRUE,
+            weights = compute_class_weights_multinomial(train_subset_multinom))
+}
+
+
+multinomial_A <- fit_multinom(train_data, PARTITION_A)
+summary(multinomial_A)
+multinomial_B <- fit_multinom(train_data, PARTITION_B)
+summary(multinomial_B)
+exp(coef(multinomial_B))
+```
+
+We can interpret the exponentiated coefficients as odds ration against the base class, which is AQI level 1 (Good). All of the pollutant values have higher coefficients with higher category, meaning that increasing value of pollutants are more likely to equal to higher levels of AQI, as it should. For example with increasing pollutant PM2.5, it is 1.04 more likely AQI 2 than AQI 1. For third level it is 1.07 and for fourth 1.09. Values lower than 0 means that it is less likely, rain the day before usually does not mean higher level of AQI. We can visualize this by plotting proportion of rain for each category. Similar phenomena can explain large coefficients for Snowfall and Soil Moist Tempeture, but as the values are more rare it makes much bigger impact. 
+
+```{r}
+train_data %>%
+  mutate(Rain_Status = ifelse(Rain > 0, "Raining", "No Rain")) %>%
+  ggplot(aes(x = AQI_p24, fill = Rain_Status)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proportion of Rain by AQI Level",
+        x = element_blank(), y = element_blank(),
+        fill = "Condition") +
+  theme_minimal()
+```
+
+#### Eval multinominal
+The accuracy and recall for this model is not very significantly changed compared to the other parametric or non-parametric models.
+```{r}
+predict_multinom <- function(model, test_data, partition) {
+  test_features <- test_data %>% select(all_of(partition))
+  actual <- as.integer(as.character(test_data$AQI_p24))
+  preds <- as.integer(as.character(predict(model, newdata = test_features)))
+  list(actual = actual, preds = preds)
+}
+
+eval_multinom <- function(model, test_data, partition) {
+  p <- predict_multinom(model, test_data, partition)
+  tibble(
+    RMSE = round(sqrt(mean((p$actual - p$preds)^2)), 4),
+    MAE  = round(mean(abs(p$actual - p$preds)), 4),
+    `Acc (%)` = round(mean(p$preds == p$actual) * 100, 2),
+    `+-1 Class Acc (%)` = round(mean(abs(p$preds - p$actual) <= 1) * 100, 2)
+  )
+}
+
+class_recall_multinom <- function(model, test_data, partition) {
+  p <- predict_multinom(model, test_data, partition)
+  tibble(Class = 1:4, Label = aqi_levels) %>%
+    mutate(
+      Actual_n     = map_int(Class, \(k) sum(p$actual == k)),
+      Pred_n       = map_int(Class, \(k) sum(p$preds  == k)),
+      `Recall (%)` = map_dbl(Class, \(k) {
+        n_actual <- sum(p$actual == k)
+        if (n_actual == 0) NA_real_
+        else round(mean(p$preds[p$actual == k] == k) * 100, 1)
+      })
+    )
+}
+
+list(
+  "A - pollutants only" = eval_multinom(multinomial_A, test_data, PARTITION_A),
+  "B - all features" = eval_multinom(multinomial_B, test_data, PARTITION_B)
+) %>%
+  list_rbind(names_to = "Partition")
+
+cat("--- Partition A ---\n")
+class_recall_multinom(multinomial_A, test_data, PARTITION_A) %>% print()
+cat("--- Partition B ---\n")
+class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% print()
+```
+
+#### Conf matrix
+```{r}
+preds_multinom <- predict_multinom(multinomial_B, test_data, PARTITION_B)
+actual_cls <- preds_multinom$actual
+pred_cls <- preds_multinom$preds
+act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
+table(actual_cls, pred_cls)
+
+# row-normalised confusion df
+act_pred_tb %>%
+  mutate(
+    Actual = factor(Actual, levels = 1:4, labels = aqi_levels),
+    Predicted = factor(Predicted, levels = 1:4, labels = aqi_levels)
+  ) %>%
+  count(Actual, Predicted) %>%
+  complete(Actual, Predicted, fill = list(n = 0)) %>%
+  mutate(Recall = n / sum(n), .by = Actual) %>%
+  ggplot(aes(Predicted, Actual, fill = Recall)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = if_else(n > 0, sprintf("%.0f%%\n(n=%d)", Recall * 100, n), "")),  
+            size = 2.8, lineheight = 1.2) +
+  scale_fill_gradient(low = "white", high = "steelblue",
+                      labels = scales::percent, limits = c(0, 1)) +
+  scale_x_discrete(position = "top") +
+  scale_y_discrete(limits = rev(aqi_levels)) +
+  labs(
+    title = "Confusion Matrix for RF Partition B (weighted, pwr=1.7)",
+    subtitle = "Each cell = % of true class predicted as that column",
+    x = "Predicted class", y = "True (Actual) class", fill = "Recall"
+  ) +
+  theme_minimal() 
+```
+
+#### Stats test multinominal
+Rejecting null hypothesis for anova test means that the models are statistically different and model B is better.
+```{r}
+anova(multinomial_A, multinomial_B)
+```
+
 
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
