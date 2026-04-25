@@ -418,6 +418,7 @@ complete_data_six %>%
 Air quality in Bratislava is mostly Fair and Moderate (~89%). Good air quality happens in 5.2% of hours. Poor (original EEA classes 4-6, including Very poor and Extremely poor) accounts for 5.7% of hours.
 
 The dataset is imbalanced due to Bratislava having Fair and Moderate air quality most of the time. The Poor class accounts for only 5.7% of the data, yet it is a critical class to be able to predict.
+We don't consider this as a problem by itself, as the data reflects the real world distribution of AQI levels, and there are techniques 
 
 ## Merging Rare AQI Classes
 
@@ -964,6 +965,10 @@ Comparing the two partitions tests whether current weather conditions add predic
 
 ### Random Forest
 
+@TODO: popis preco sme vybrali forest
+
+We address the class imbalance by using inverse-frequency class weights. During training, misclassifying a minority class (Poor) is penalized more than misclassifying a majority class (Good, Fair, Moderate). This improves recall for Poor AQI hours, which are critical to be able to predict.
+Other methods include undersampling/oversampling, but those methods essentially throw away data or create non-existing ones. 
 ```{r}
 library(ranger)
 
@@ -1023,6 +1028,20 @@ predict_rf <- function(model, test_data, partition) {
   list(actual = actual, preds = preds)
 }
 
+# Macro-averaged F1 (compute F1 per class, then average equally across all 4 classes)
+macro_f1 <- function(preds_int, actual_int) {
+  f1s <- sapply(1:4, function(k) {
+    tp <- sum(preds_int == k & actual_int == k)
+    fp <- sum(preds_int == k & actual_int != k)
+    fn <- sum(preds_int != k & actual_int == k)
+    if (tp == 0) return(0)
+    precision <- tp / (tp + fp)
+    recall    <- tp / (tp + fn)
+    2 * precision * recall / (precision + recall)
+  })
+  round(mean(f1s), 4)
+}
+
 # Computes overall test-set metrics for a fitted RF
 eval_rf <- function(model, test_data, partition) {
   p      <- predict_rf(model, test_data, partition)
@@ -1034,7 +1053,8 @@ eval_rf <- function(model, test_data, partition) {
     RMSE = round(sqrt(mean((actual - preds)^2)), 4),
     MAE = round(mean(abs(actual - preds)), 4),
     `Acc (%)` = round(mean(preds == actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2) # within 1 class
+    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2),
+    `Macro F1` = macro_f1(preds, actual)
   )
 }
 
@@ -1232,6 +1252,269 @@ roc_df %>%
 
 The strongest class is **Poor (AUC = 0.889)**, meaning the model reliably separates poor air quality from safe conditions.
 Good is also well separated (AUC = 0.776). Moderate and Fair, being the dominant classes, are harder to distinguish from each other: AUC = 0.728 and 0.700, respectively.
+
+### XGBoost
+
+This ensemble method builds trees sequentially, as opposed to RF which builds trees independently in parallel. New trees correct the residual errors of all previous trees combined. This allows XGBoost to learn from its mistakes at each step.
+
+```{r}
+library(xgboost)
+
+XGB_BOOSTER <- "gbtree" # for structured data
+XGB_OBJECTIVE <- "multi:softmax" # multi-class classification with integer labels
+
+XGB_NROUNDS          <- 200  # selected via temporal grid search (train≤2021, val=2022)
+XGB_MAX_DEPTH        <- 4    # selected via temporal grid search: depth=4 best val macro F1
+XGB_MIN_CHILD_WEIGHT <- 1    # min samples in a leaf; higher = coarser splits, less overfitting
+XGB_ETA              <- 0.1  # learning rate
+XGB_SUBSAMPLE        <- 0.8  # 80% of rows per tree
+XGB_COLSAMPLE        <- 0.8  # 80% of features per tree
+XGB_WEIGHT_POWER     <- 1.0  # exponent on inverse-frequency weights (same logic as RF)
+XGB_SEED <- 2026
+XGB_NTHREAD <- max(1, parallel::detectCores() - 1)
+```
+
+#### Hyperparameter tuning
+
+Key hyperparameters for XGBoost include:
+
+- `nrounds`: number of boosting rounds (trees). More rounds can improve performance but risk overfitting.
+- `max_depth`: maximum depth of each tree. Shallower trees = weaker learners, less overfitting.
+- `min_child_weight`: minimum number of samples required in a leaf node. Higher values force coarser splits, reducing overfitting on rare classes.
+- `eta` (learning rate): step size at each boosting iteration. Smaller eta requires more rounds but reduces overfitting.
+- `subsample` and `colsample_bytree`: fractions of rows and features sampled per tree.
+
+We use grid search (train on <= 2021, validate on 2022) to find the best combination of `nrounds`, `max_depth`, and `min_child_weight`.
+
+We use Macro-Averaged F1 and Poor Class Recall for model evaluation. Macro F1 was chosen because of the class imbalance and the importance of predicting all classes well, not just the majority classes. Model that never predicts Good or Poor is heavily penalised regardless of how well it handles the majority classes.
+
+Grid search sweeps:
+- `max_depth` {3, 4, 5, 6}
+- `nrounds` {100, 200, 300, 500}
+- `min_child_weight` {1, 10}
+
+```{r}
+# converts the tibble to a dmatrix
+create_dmatrix <- function(data, partition) {
+  X <- data %>% 
+    select(all_of(partition)) %>% 
+    as.matrix()
+
+  # AQI_p24 is ord (1-4), XGB requires 0 based int labels
+  y <- as.integer(data$AQI_p24) - 1L
+
+  xgb.DMatrix(X, label = y)
+}
+
+dtrain_A <- create_dmatrix(train_data, PARTITION_A)
+dtrain_B <- create_dmatrix(train_data, PARTITION_B)
+dtest_A <- create_dmatrix(test_data,  PARTITION_A)
+dtest_B <- create_dmatrix(test_data,  PARTITION_B)
+
+xgb_params <- list(
+  booster = XGB_BOOSTER,
+  objective = XGB_OBJECTIVE, 
+  num_class = 4L,
+  max_depth = XGB_MAX_DEPTH,
+  eta = XGB_ETA,
+  subsample = XGB_SUBSAMPLE,
+  colsample_bytree = XGB_COLSAMPLE,
+  min_child_weight = XGB_MIN_CHILD_WEIGHT,
+  eval_metric = "mlogloss",
+  nthread = XGB_NTHREAD,
+  seed = XGB_SEED
+)
+```
+
+```{r}
+train_grid <- model_features %>% filter(year(Start) <= 2021, !is.na(AQI_p24))
+val_data   <- model_features %>% filter(year(Start) == 2022,  !is.na(AQI_p24))
+
+dtrain_grid_B <- create_dmatrix(train_grid, PARTITION_B)
+dval_B_gs     <- create_dmatrix(val_data,   PARTITION_B)
+
+param_grid <- expand.grid(
+  max_depth        = c(3, 4, 5, 6),
+  nrounds          = c(100, 200, 300, 500),
+  min_child_weight = c(1, 10)
+)
+
+# iterate each row of grid, returns one tibble row per combo
+grid_results <- pmap(param_grid, function(max_depth, nrounds, min_child_weight) {
+  p <- list(
+    booster = XGB_BOOSTER, 
+    objective = XGB_OBJECTIVE, 
+    num_class = 4L,
+    max_depth = max_depth, 
+    eta = XGB_ETA, 
+    subsample = XGB_SUBSAMPLE,
+    colsample_bytree = XGB_COLSAMPLE, 
+    min_child_weight = min_child_weight,
+    eval_metric = "mlogloss", 
+    nthread = XGB_NTHREAD, 
+    seed = XGB_SEED
+  )
+  m <- xgb.train(params = p, data = dtrain_grid_B, nrounds = nrounds, verbose = 0)
+
+  preds_tr <- as.integer(predict(m, dtrain_grid_B)) + 1L
+  preds_v <- as.integer(predict(m, dval_B_gs)) + 1L
+
+  tibble(
+    max_depth = max_depth,
+    nrounds = nrounds,
+    min_child_weight = min_child_weight,
+    train_f1 = macro_f1(preds_tr, as.integer(train_grid$AQI_p24)),
+    val_f1 = macro_f1(preds_v,  as.integer(val_data$AQI_p24)),
+    val_acc = round(100 * mean(preds_v == as.integer(val_data$AQI_p24)), 2),
+    gap = train_f1 - val_f1 # overfit gap
+  )
+}) %>% list_rbind() # combine all rows into one tibble
+
+# Best by val_f1
+best_params <- grid_results %>%
+  arrange(desc(val_f1), gap, nrounds, max_depth) %>%
+  slice(1) %>%
+  print()
+```
+
+```{r}
+# Heatmap faceted by min_child_weight (fill = validation macro F1)
+grid_results %>%
+  mutate(
+    label = sprintf("F1=%.3f\nacc=%.1f%%\ngap=%.3f", val_f1, val_acc, gap),
+    min_child_weight = factor(min_child_weight, labels = c("min_child_weight = 1", "min_child_weight = 10"))
+  ) %>%
+  ggplot(aes(x = factor(nrounds), y = factor(max_depth), fill = val_f1)) +
+  geom_tile(color = "white", linewidth = 0.8) +
+  geom_text(aes(label = label), size = 2.8) +
+  facet_wrap(~min_child_weight) + # two panels
+  scale_fill_distiller(palette = "RdYlGn", direction = 1, name = "Val macro F1") + #red-yellow-green gradient
+  labs(
+    title    = "XGBoost grid search (max_depth, nrounds, min_child_weight)",
+    subtitle = "Train <=2021, validate = 2022 | By macro-averaged F1",
+    x = "nrounds", y = "max_depth"
+  ) +
+  theme_minimal()
+```
+
+The heatmap helps us visualize the grid that was searched. We also calculate the gap between train and validation F1 to check for possible overfitting. The best set of hyperparameters are as follows: `max_depth=3, nrounds=100, min_child_weight=10` with validation macro F1 of 0.409.
+
+#### Fitting the model
+
+```{r}
+# inverse frequency weights as in RF, normalized (due to ETA)
+compute_class_weights_xgb <- function(data, power) {
+  class_counts <- table(data$AQI_p24)
+  w_raw <- (1 / as.numeric(class_counts))^power
+  w_per_row <- w_raw[as.integer(data$AQI_p24)]
+  w_per_row / mean(w_per_row)
+}
+
+fit_xgb <- function(dtrain, nrounds = XGB_NROUNDS, params = xgb_params,
+                    use_weights = FALSE, weight_power = XGB_WEIGHT_POWER) {
+  if (use_weights) {
+    w <- compute_class_weights_xgb(train_data, power = weight_power)
+    setinfo(dtrain, "weight", w) # sets the weight 
+  }
+  xgb.train(params = params, data = dtrain, nrounds = nrounds, verbose = 0)
+}
+
+eval_xgb <- function(model, dtest, test_data) {
+  preds  <- as.integer(predict(model, dtest)) + 1L # back to 1-based classes
+  actual <- as.integer(test_data$AQI_p24)
+  keep <- !is.na(actual)
+  preds <- preds[keep]
+  actual <- actual[keep]
+  tibble(
+    RMSE                = round(sqrt(mean((preds - actual)^2)), 4),
+    MAE                 = round(mean(abs(preds - actual)), 4),
+    `Acc (%)`           = round(100 * mean(preds == actual), 2),
+    `+-1 Class Acc (%)` = round(100 * mean(abs(preds - actual) <= 1), 2),
+    `Macro F1`          = macro_f1(preds, actual)
+  )
+}
+
+class_recall_xgb <- function(model, dtest, test_data) {
+  preds  <- as.integer(predict(model, dtest)) + 1L
+  actual <- as.integer(test_data$AQI_p24)
+  keep   <- !is.na(actual)
+  preds  <- preds[keep]
+  actual <- actual[keep]
+  tibble(Class = 1:4, Label = aqi_levels) %>%
+    mutate(
+      Actual_n     = sapply(Class, function(k) sum(actual == k)),
+      Pred_n       = sapply(Class, function(k) sum(preds == k)),
+      `Recall (%)` = sapply(Class, function(k) {
+        n <- sum(actual == k)
+        if (n == 0) NA_real_ else round(100 * mean(preds[actual == k] == k), 1)
+      })
+    )
+}
+
+xgb_A <- fit_xgb(dtrain_A, use_weights = FALSE)
+xgb_B <- fit_xgb(dtrain_B, use_weights = FALSE)
+xgb_B_weighted <- fit_xgb(dtrain_B, use_weights = TRUE)
+```
+
+#### Evaluation
+
+```{r}
+list(
+  "A - pollutants only" = eval_xgb(xgb_A, dtest_A, test_data),
+  "B - all features" = eval_xgb(xgb_B, dtest_B, test_data),
+  "B - all features (weighted)" = eval_xgb(xgb_B_weighted, dtest_B, test_data)
+) %>%
+  list_rbind(names_to = "Partition")
+
+cat("--- Partition A ---\n")
+class_recall_xgb(xgb_A, dtest_A, test_data) %>% print()
+cat("\n--- Partition B (unweighted) ---\n")
+class_recall_xgb(xgb_B, dtest_B, test_data) %>% print()
+cat("\n--- Partition B (weighted, pw=1.0) ---\n")
+class_recall_xgb(xgb_B_weighted, dtest_B, test_data) %>% print()
+```
+
+Results show that the weighted version (Partition B) achieves the highest Macro F1 score (0.428) and significantly improves recall for the Poor class (61.1%) compared to the unweighted version (8.4%). However, this comes at the cost of overall accuracy, which drops to 49.7%. The unweighted version of Partition B achieves 62.2% accuracy, but a slightly lower 0.412 Macro F1.
+
+#### Feature importance: XGBoost vs RF
+
+Both XGBoost and RF provide feature importance metrics, but they are based on different principles. XGBoost's default importance is gain-based, which measures the improvement in the loss function from splits on that feature. However, this can be misleading because it can inflate the importance of features that appear in many splits (like lags) even if their marginal contribution is small.
+
+Both XGBoost and RF importance are computed using the **permutation method**: each feature is randomly shuffled on the test set, and the drop in accuracy is recorded. A larger drop means the model relies more on that feature. This puts both models on the same footing — comparing XGBoost's internal gain-based importance to RF's permutation importance would introduce a confound (different metrics, not different models).
+
+```{r}
+library(vip)
+
+xgb_pred_wrapper <- function(object, newdata) {
+  dm    <- xgb.DMatrix(as.matrix(newdata))
+  preds <- as.integer(predict(object, dm)) + 1L
+  factor(as.character(preds), levels = c("1", "2", "3", "4"))
+}
+
+# XGBoost permutation importance (on test set)
+set.seed(XGB_SEED)
+xgb_imp_perm_B <- vi(
+  object = xgb_B,
+  method = "permute",
+  train = test_data %>% select(all_of(PARTITION_B)),
+  target = test_data$AQI_p24,
+  metric = "accuracy",
+  pred_wrapper = xgb_pred_wrapper,
+  nsim         = 5
+)
+
+vip(xgb_imp_perm_B, num_features = 30, geom = "col") +
+  labs(
+    title    = "Permutation-based Variable Importance",
+    subtitle = "Accuracy metric, 5 permutations"
+  ) +
+  theme_minimal()
+
+print(xgb_imp_perm_B, n = 30)
+```
+
+`Pressure_MSL` is the most dominant feature, nearly 2x the next-ranked feature. High pressure traps pollutants, while low pressure disperses them. `O3` and `PM25` are the next top features.
+`Snowfall` has slightly negative importance, meaning shuffling it marginally improves accuracy.
 
 ### k-Nearest Neighbours (kNN)
 
