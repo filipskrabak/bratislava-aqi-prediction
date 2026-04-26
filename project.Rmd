@@ -876,7 +876,7 @@ cor_hv %>%
 
 From the plot, there are three groups of features that are highly correlated with each other clearly visible.
 
-Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because other variables because snowfalls variance can be explained by combination of other features (temperature, humidity, etc.).
+Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because snowfalls variance can be explained by combination of other features (temperature, humidity, etc.).
 Temperature group - Temperature, Dew_Point, Soil_Temp_0_7, Humidity, and Vapour_Pressure_Def all measure very similar aspects.
 Wind group - Wind_Speed and Wind_Gusts have a strong correlation (r = 0.94).
 
@@ -954,6 +954,58 @@ Class 4 (Poor) makes up 6.5% of the training data and 3.3% of the test data.
 All four classes are represented, but Poor is a minority class.
 We report per-class recall in every evaluation to make this limitation transparent.
 
+## Metrics
+
+We report overall accuracy, +-1 class accuracy, macro-averaged F1 score, and per-class recall. 
+
+We use Macro-Averaged F1 and Poor Class Recall for model evaluation. Macro F1 was chosen because of the class imbalance and the importance of predicting all classes well, not just the majority classes. Model that never predicts Good or Poor is penalised regardless of how well it handles the majority classes. It is important to us that we are able to capture as many as possible of the critical Poor AQI hours, while also maintaining good performance on the other classes.
+
+```{r}
+# Macro-averaged F1 (compute F1 per class, then average equally across all 4 classes)
+macro_f1 <- function(preds_int, actual_int) {
+  f1s <- sapply(1:4, function(k) {
+    tp <- sum(preds_int == k & actual_int == k)
+    fp <- sum(preds_int == k & actual_int != k)
+    fn <- sum(preds_int != k & actual_int == k)
+    if (tp == 0) return(0)
+    precision <- tp / (tp + fp)
+    recall <- tp / (tp + fn)
+    2 * precision * recall / (precision + recall)
+  })
+  round(mean(f1s), 4)
+}
+
+# Metrics helper function 
+compute_metrics <- function(preds, actual) {
+  keep   <- !is.na(actual) # can occur due to lags
+  preds  <- preds[keep]
+  actual <- actual[keep]
+  tibble(
+    RMSE = round(sqrt(mean((preds - actual)^2)), 4),
+    MAE = round(mean(abs(preds - actual)), 4),
+    `Acc (%)` = round(100 * mean(preds == actual), 2),
+    `+-1 Class Acc (%)` = round(100 * mean(abs(preds - actual) <= 1), 2),
+    `Macro F1` = macro_f1(preds, actual)
+  )
+}
+
+# Recall per class
+compute_class_recall <- function(preds, actual) {
+  keep   <- !is.na(actual)
+  preds  <- preds[keep]
+  actual <- actual[keep]
+  tibble(Class = 1:4, Label = aqi_levels) %>%
+    mutate(
+      Actual_n = map_int(Class, \(k) sum(actual == k)),
+      Pred_n = map_int(Class, \(k) sum(preds  == k)),
+      `Recall (%)` = map_dbl(Class, \(k) {
+        n <- sum(actual == k)
+        if (n == 0) NA_real_ else round(100 * mean(preds[actual == k] == k), 1)
+      })
+    )
+}
+```
+
 ## Scenario 1 (Three methods across two feature approaches)
 
 Each method is evaluated on two feature sets:
@@ -1028,69 +1080,23 @@ predict_rf <- function(model, test_data, partition) {
   list(actual = actual, preds = preds)
 }
 
-# Macro-averaged F1 (compute F1 per class, then average equally across all 4 classes)
-macro_f1 <- function(preds_int, actual_int) {
-  f1s <- sapply(1:4, function(k) {
-    tp <- sum(preds_int == k & actual_int == k)
-    fp <- sum(preds_int == k & actual_int != k)
-    fn <- sum(preds_int != k & actual_int == k)
-    if (tp == 0) return(0)
-    precision <- tp / (tp + fp)
-    recall    <- tp / (tp + fn)
-    2 * precision * recall / (precision + recall)
-  })
-  round(mean(f1s), 4)
-}
+library(vip)
 
-# Computes overall test-set metrics for a fitted RF
 eval_rf <- function(model, test_data, partition) {
-  p      <- predict_rf(model, test_data, partition)
-  actual <- p$actual
-  preds  <- p$preds
-
-  tibble(
-    # We calculate RMSE/MAE because AQI is an ordered factor.
-    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
-    MAE = round(mean(abs(actual - preds)), 4),
-    `Acc (%)` = round(mean(preds == actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2),
-    `Macro F1` = macro_f1(preds, actual)
-  )
+  p <- predict_rf(model, test_data, partition)
+  compute_metrics(p$preds, p$actual)
 }
 
-# Per-class recall - fraction of each true class correctly predicted
-# This helps us understand how well the model predicts individual AQI classes
 class_recall_rf <- function(model, test_data, partition) {
-  p      <- predict_rf(model, test_data, partition)
-  actual <- p$actual
-  preds  <- p$preds
-
-  return(tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n = map_int(Class, \(k) sum(actual == k)),
-      Pred_n = map_int(Class, \(k) sum(preds  == k)),
-      `Recall (%)` = map_dbl(Class, \(k) {
-        n_actual <- sum(actual == k)
-        if (n_actual == 0) NA_real_ else round(mean(preds[actual == k] == k) * 100, 1)
-      })
-    ))
+  p <- predict_rf(model, test_data, partition)
+  compute_class_recall(p$preds, p$actual)
 }
 
-# bar chart of top-20 permutation importance scores
+# bar chart of permutation importance scores
 plot_importance <- function(model, title = "RF Permutation Importance") {
-  feat_and_imp <- tibble(
-    Feature = names(model$variable.importance),
-    Importance = model$variable.importance
-  ) 
-    
-  feat_and_imp%>%
-    arrange(desc(Importance)) %>%
-    slice_head(n = 20) %>%
-    mutate(Feature = fct_reorder(Feature, Importance)) %>%
-    ggplot(aes(Importance, Feature)) +
-    geom_col(fill = "steelblue") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    labs(title = title, x = "Permutation importance", y = NULL)
+  vip(model, num_features = 23, geom = "col") +
+    labs(title = title) +
+    theme_minimal()
 }
 ```
 
@@ -1114,17 +1120,14 @@ evals_RF %>%
   list_rbind(names_to = "Partition")
 ```
 
-Per-class recall (how often each AQI class was correctly predicted):
+Per-class recall:
 ```{r}
 cat("--- Partition A ---\n")
-class_recall_rf(rf_A, test_data, PARTITION_A) %>% 
-  print()
+class_recall_rf(rf_A, test_data, PARTITION_A) %>% print()
 cat("\n--- Partition B (unweighted) ---\n")
-class_recall_rf(rf_B, test_data, PARTITION_B) %>% 
-  print()
+class_recall_rf(rf_B, test_data, PARTITION_B) %>% print()
 cat("\n--- Partition B (weighted) ---\n")
-class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% 
-  print()
+class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% print()
 ```
 
 ```{r}
@@ -1286,8 +1289,6 @@ Key hyperparameters for XGBoost include:
 
 We use grid search (train on <= 2021, validate on 2022) to find the best combination of `nrounds`, `max_depth`, and `min_child_weight`.
 
-We use Macro-Averaged F1 and Poor Class Recall for model evaluation. Macro F1 was chosen because of the class imbalance and the importance of predicting all classes well, not just the majority classes. Model that never predicts Good or Poor is heavily penalised regardless of how well it handles the majority classes.
-
 Grid search sweeps:
 - `max_depth` {3, 4, 5, 6}
 - `nrounds` {100, 200, 300, 500}
@@ -1419,36 +1420,20 @@ fit_xgb <- function(dtrain, nrounds = XGB_NROUNDS, params = xgb_params,
   xgb.train(params = params, data = dtrain, nrounds = nrounds, verbose = 0)
 }
 
-eval_xgb <- function(model, dtest, test_data) {
-  preds  <- as.integer(predict(model, dtest)) + 1L # back to 1-based classes
+predict_xgb <- function(model, dtest, test_data) {
+  preds  <- as.integer(predict(model, dtest)) + 1L  # XGBoost outputs 0-based labels
   actual <- as.integer(test_data$AQI_p24)
-  keep <- !is.na(actual)
-  preds <- preds[keep]
-  actual <- actual[keep]
-  tibble(
-    RMSE                = round(sqrt(mean((preds - actual)^2)), 4),
-    MAE                 = round(mean(abs(preds - actual)), 4),
-    `Acc (%)`           = round(100 * mean(preds == actual), 2),
-    `+-1 Class Acc (%)` = round(100 * mean(abs(preds - actual) <= 1), 2),
-    `Macro F1`          = macro_f1(preds, actual)
-  )
+  list(actual = actual, preds = preds)
+}
+
+eval_xgb <- function(model, dtest, test_data) {
+  p <- predict_xgb(model, dtest, test_data)
+  compute_metrics(p$preds, p$actual)
 }
 
 class_recall_xgb <- function(model, dtest, test_data) {
-  preds  <- as.integer(predict(model, dtest)) + 1L
-  actual <- as.integer(test_data$AQI_p24)
-  keep   <- !is.na(actual)
-  preds  <- preds[keep]
-  actual <- actual[keep]
-  tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n     = sapply(Class, function(k) sum(actual == k)),
-      Pred_n       = sapply(Class, function(k) sum(preds == k)),
-      `Recall (%)` = sapply(Class, function(k) {
-        n <- sum(actual == k)
-        if (n == 0) NA_real_ else round(100 * mean(preds[actual == k] == k), 1)
-      })
-    )
+  p <- predict_xgb(model, dtest, test_data)
+  compute_class_recall(p$preds, p$actual)
 }
 
 xgb_A <- fit_xgb(dtrain_A, use_weights = FALSE)
@@ -1470,7 +1455,7 @@ cat("--- Partition A ---\n")
 class_recall_xgb(xgb_A, dtest_A, test_data) %>% print()
 cat("\n--- Partition B (unweighted) ---\n")
 class_recall_xgb(xgb_B, dtest_B, test_data) %>% print()
-cat("\n--- Partition B (weighted, pw=1.0) ---\n")
+cat("\n--- Partition B (weighted) ---\n")
 class_recall_xgb(xgb_B_weighted, dtest_B, test_data) %>% print()
 ```
 
@@ -1483,8 +1468,6 @@ Both XGBoost and RF provide feature importance metrics, but they are based on di
 Both XGBoost and RF importance are computed using the **permutation method**: each feature is randomly shuffled on the test set, and the drop in accuracy is recorded. A larger drop means the model relies more on that feature. This puts both models on the same footing — comparing XGBoost's internal gain-based importance to RF's permutation importance would introduce a confound (different metrics, not different models).
 
 ```{r}
-library(vip)
-
 xgb_pred_wrapper <- function(object, newdata) {
   dm    <- xgb.DMatrix(as.matrix(newdata))
   preds <- as.integer(predict(object, dm)) + 1L
@@ -1620,35 +1603,20 @@ fit_knn <- function(train_data, test_data, partition, k, kernel,
        scale = TRUE)  # scaling due to kNN sensitivity
 }
 
+predict_knn <- function(knn_fit, test_data) {
+  preds  <- as.integer(fitted(knn_fit))
+  actual <- as.integer(test_data$AQI_p24)
+  list(actual = actual, preds = preds)
+}
+
 eval_knn <- function(knn_fit, test_data) {
-  predicted <- as.integer(as.character(fitted(knn_fit)))
-  actual    <- as.integer(as.character(test_data$AQI_p24))
-  keep      <- !is.na(actual)  # exclude trailing rows where 24-hour lead is unavailable
-  predicted <- predicted[keep]
-  actual    <- actual[keep]
-  tibble(
-    RMSE                = round(sqrt(mean((predicted - actual)^2)), 4),
-    MAE                 = round(mean(abs(predicted - actual)), 4),
-    `Acc (%)`           = round(100 * mean(predicted == actual), 2),
-    `+-1 Class Acc (%)` = round(100 * mean(abs(predicted - actual) <= 1), 2)
-  )
+  p <- predict_knn(knn_fit, test_data)
+  compute_metrics(p$preds, p$actual)
 }
 
 class_recall_knn <- function(knn_fit, test_data) {
-  predicted <- as.integer(as.character(fitted(knn_fit)))
-  actual    <- as.integer(as.character(test_data$AQI_p24))
-  keep      <- !is.na(actual)
-  predicted <- predicted[keep]
-  actual    <- actual[keep]
-  tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n     = sapply(Class, function(k) sum(actual == k)),
-      Pred_n       = sapply(Class, function(k) sum(predicted == k)),
-      `Recall (%)` = sapply(Class, function(k) {
-        n <- sum(actual == k)
-        if (n == 0) NA_real_ else round(100 * mean(predicted[actual == k] == k), 1)
-      })
-    )
+  p <- predict_knn(knn_fit, test_data)
+  compute_class_recall(p$preds, p$actual)
 }
 ```
 
@@ -1721,33 +1689,22 @@ cat("\n=== Partition B ===\n"); print(polr_summary_table(ordinal_B))
 
 The overall perfomrance and class recall metrics.
 ```{r}
-eval_ordinal <- function(model, test_data, partition) {
+
+predict_ordinal <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
   preds  <- as.integer(as.character(predict(model, newdata = test_features)))
-  print(preds)
-  tibble(
-    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
-    MAE  = round(mean(abs(actual - preds)), 4),
-    `Acc (%)` = round(mean(preds == actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2)
-  )
+  list(actual = actual, preds = preds)
+}
+
+eval_ordinal <- function(model, test_data, partition) {
+  p <- predict_ordinal(model, test_data, partition)
+  compute_metrics(p$preds, p$actual)
 }
 
 class_recall_ordinal <- function(model, test_data, partition) {
-  test_features <- test_data %>% select(all_of(partition))
-  actual <- as.integer(as.character(test_data$AQI_p24))
-  preds  <- as.integer(as.character(predict(model, newdata = test_features)))
-  tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n     = map_int(Class, \(k) sum(actual == k)),
-      Pred_n       = map_int(Class, \(k) sum(preds  == k)),
-      `Recall (%)` = map_dbl(Class, \(k) {
-        n_actual <- sum(actual == k)
-        if (n_actual == 0) NA_real_
-        else round(mean(preds[actual == k] == k) * 100, 1)
-      })
-    )
+  p <- predict_ordinal(model, test_data, partition)
+  compute_class_recall(p$preds, p$actual)
 }
 
 list(
@@ -1792,34 +1749,22 @@ summary(partial_A)
 In partition B, there is a much bigger number of predictors than in A. As only small amount of these do not violate PO assumption, this model is basically very close to multinominal regression (both are actually) and we need to estimate coefficients for every predictor for every category. That requires that every combination can be assigned some probability. Problem arises if the estimated probabilities are close to 0 or 1 respectively, as the link functions are based on logharitms, making the estimation unstable.   
 
 ```{r}
-eval_partial <- function(model, test_data, partition) {
+predict_partial <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
-  actual <- as.integer(as.character(test_data$AQI_p24))
-  probs  <- predictvglm(model, newdata = test_features, type="response")
-  preds <- max.col(probs)
-  tibble(
-    RMSE = round(sqrt(mean((actual - preds)^2)), 4),
-    MAE  = round(mean(abs(actual - preds)), 4),
-    `Acc (%)` = round(mean(preds == actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(preds - actual) <= 1) * 100, 2)
-  )
+  actual <- as.integer(test_data$AQI_p24)
+  probs  <- predictvglm(model, newdata = test_features, type = "response")
+  preds  <- max.col(probs)
+  list(actual = actual, preds = preds)
+}
+
+eval_partial <- function(model, test_data, partition) {
+  p <- predict_partial(model, test_data, partition)
+  compute_metrics(p$preds, p$actual)
 }
 
 class_recall_partial <- function(model, test_data, partition) {
-  test_features <- test_data %>% select(all_of(partition))
-  actual <- as.integer(as.character(test_data$AQI_p24))
-  probs  <- predictvglm(model, newdata = test_features, type="response")
-  preds <- max.col(probs)
-  tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n     = map_int(Class, \(k) sum(actual == k)),
-      Pred_n       = map_int(Class, \(k) sum(preds  == k)),
-      `Recall (%)` = map_dbl(Class, \(k) {
-        n_actual <- sum(actual == k)
-        if (n_actual == 0) NA_real_
-        else round(mean(preds[actual == k] == k) * 100, 1)
-      })
-    )
+  p <- predict_partial(model, test_data, partition)
+  compute_class_recall(p$preds, p$actual)
 }
 
 list(
@@ -1886,26 +1831,12 @@ predict_multinom <- function(model, test_data, partition) {
 
 eval_multinom <- function(model, test_data, partition) {
   p <- predict_multinom(model, test_data, partition)
-  tibble(
-    RMSE = round(sqrt(mean((p$actual - p$preds)^2)), 4),
-    MAE  = round(mean(abs(p$actual - p$preds)), 4),
-    `Acc (%)` = round(mean(p$preds == p$actual) * 100, 2),
-    `+-1 Class Acc (%)` = round(mean(abs(p$preds - p$actual) <= 1) * 100, 2)
-  )
+  compute_metrics(p$preds, p$actual)
 }
 
 class_recall_multinom <- function(model, test_data, partition) {
   p <- predict_multinom(model, test_data, partition)
-  tibble(Class = 1:4, Label = aqi_levels) %>%
-    mutate(
-      Actual_n     = map_int(Class, \(k) sum(p$actual == k)),
-      Pred_n       = map_int(Class, \(k) sum(p$preds  == k)),
-      `Recall (%)` = map_dbl(Class, \(k) {
-        n_actual <- sum(p$actual == k)
-        if (n_actual == 0) NA_real_
-        else round(mean(p$preds[p$actual == k] == k) * 100, 1)
-      })
-    )
+  compute_class_recall(p$preds, p$actual)
 }
 
 list(
@@ -1916,7 +1847,7 @@ list(
 
 cat("--- Partition A ---\n")
 class_recall_multinom(multinomial_A, test_data, PARTITION_A) %>% print()
-cat("--- Partition B ---\n")
+cat("\n--- Partition B ---\n")
 class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% print()
 ```
 
