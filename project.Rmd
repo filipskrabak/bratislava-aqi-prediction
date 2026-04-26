@@ -272,7 +272,7 @@ The weather dataset has no missing values. It has 31 columns.
 
 We now try to identify collinearity (or linear relationships) between variables by looking at the correlation heatmap.
 The heatmap is hierarchically clustered, so the most correlated variables are grouped together, which helps us identify clusters of collinear features.
-```{r fig.height=8, fig.width=8}
+```{r}
 cor_matrix <- weather_raw %>%
   select(-Start, -Weather_Code) %>%
   cor(use = "complete.obs")
@@ -716,7 +716,7 @@ Since this time series does not have a unit root, we will not be using differenc
 To see possible multicollinearity and relationships between main predictors, we use the pairs plot.
 A random sample of 3 000 rows is used (due to performance).
 
-```{r fig.height=10, fig.width=10, warning=FALSE}
+```{r}
 # correlation on upper panels
 panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...) {
   usr <- par("usr"); on.exit(par(usr))
