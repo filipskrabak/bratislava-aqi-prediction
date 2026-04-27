@@ -973,6 +973,32 @@ compute_class_recall <- function(preds, actual) {
       })
     )
 }
+
+# Confusion matrix heatmap (actual and preds are integer vectors 1-4)
+plot_confusion_matrix <- function(actual, preds, title) {
+  tibble(Actual = actual, Predicted = preds) %>%
+    mutate(
+      Actual = factor(Actual, levels = 1:4, labels = aqi_levels),
+      Predicted = factor(Predicted, levels = 1:4, labels = aqi_levels)
+    ) %>%
+    count(Actual, Predicted) %>%
+    complete(Actual, Predicted, fill = list(n = 0)) %>%
+    mutate(Recall = n / sum(n), .by = Actual) %>%
+    ggplot(aes(Predicted, Actual, fill = Recall)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    geom_text(aes(label = if_else(n > 0, sprintf("%.0f%%\n(n=%d)", Recall * 100, n), "")),
+              size = 2.8, lineheight = 1.2) +
+    scale_fill_gradient(low = "white", high = "steelblue",
+                        labels = scales::percent, limits = c(0, 1)) +
+    scale_x_discrete(position = "top") +
+    scale_y_discrete(limits = rev(aqi_levels)) +
+    labs(
+      title    = title,
+      subtitle = "Each cell = % of true class predicted as that column",
+      x = "Predicted class", y = "True (Actual) class", fill = "Recall"
+    ) +
+    theme_minimal()
+}
 ```
 
 ## Scenario 1 (Three methods across two feature approaches) + Scenario 2 (3 Parametric and 3 Non-parametric models)
@@ -1016,7 +1042,7 @@ RF_WEIGHT_POWER <- 1.7 # exponent on inverse-frequency weights, tried {0.5, 0.6,
 ```{r}
 # Computes inverse-frequency case weights for a training set (equivalent to sklearn class_weight="balanced").
 # Each sample is weighted by (1 / count_of_its_class)^power.
-# power>1 amplifies the boost for rare classes.
+# power>1 widens the gap between rare and common classes
 compute_class_weights <- function(train_data, power = RF_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
   weights <- (1 / as.numeric(class_counts))^power
@@ -1207,29 +1233,7 @@ actual_cls <- preds_B_weighted$actual
 pred_cls <- preds_B_weighted$preds
 act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
 
-# row-normalised confusion df
-act_pred_tb %>%
-  mutate(
-    Actual = factor(Actual, levels = 1:4, labels = aqi_levels),
-    Predicted = factor(Predicted, levels = 1:4, labels = aqi_levels)
-  ) %>%
-  count(Actual, Predicted) %>%
-  complete(Actual, Predicted, fill = list(n = 0)) %>%
-  mutate(Recall = n / sum(n), .by = Actual) %>%
-  ggplot(aes(Predicted, Actual, fill = Recall)) +
-  geom_tile(color = "white", linewidth = 0.5) +
-  geom_text(aes(label = if_else(n > 0, sprintf("%.0f%%\n(n=%d)", Recall * 100, n), "")),  
-            size = 2.8, lineheight = 1.2) +
-  scale_fill_gradient(low = "white", high = "steelblue",
-                      labels = scales::percent, limits = c(0, 1)) +
-  scale_x_discrete(position = "top") +
-  scale_y_discrete(limits = rev(aqi_levels)) +
-  labs(
-    title = "Confusion Matrix for RF Partition B (weighted, pwr=1.7)",
-    subtitle = "Each cell = % of true class predicted as that column",
-    x = "Predicted class", y = "True (Actual) class", fill = "Recall"
-  ) +
-  theme_minimal() 
+plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: RF Partition B (weighted, pwr=1.7)")
 ```
 
 The confusion matrix shows recall per class on the diagonal.
@@ -1280,7 +1284,7 @@ rf_B_prob <- ranger(
 ```{r}
 library(pROC)
 
-prob_matrix <- predict(rf_B_prob, data = test_features_B)$predictions
+prob_matrix <- predict(rf_B_prob, data = test_data)$predictions
 
 # OVR ROC
 roc_list <- map(1:4, function(k) { # loop over aqi
@@ -1326,18 +1330,18 @@ library(xgboost)
 XGB_BOOSTER <- "gbtree" # for structured data
 XGB_OBJECTIVE <- "multi:softmax" # multi-class classification with integer labels
 
-XGB_NROUNDS          <- 200  # selected via temporal grid search (train≤2021, val=2022)
-XGB_MAX_DEPTH        <- 4    # selected via temporal grid search: depth=4 best val macro F1
-XGB_MIN_CHILD_WEIGHT <- 1    # min samples in a leaf; higher = coarser splits, less overfitting
-XGB_ETA              <- 0.1  # learning rate
-XGB_SUBSAMPLE        <- 0.8  # 80% of rows per tree
-XGB_COLSAMPLE        <- 0.8  # 80% of features per tree
-XGB_WEIGHT_POWER     <- 1.0  # exponent on inverse-frequency weights (same logic as RF)
+XGB_NROUNDS <- 200
+XGB_MAX_DEPTH <- 4 # depth=4 best val macro F1
+XGB_MIN_CHILD_WEIGHT <- 1 # min samples in a leaf; higher = less overfitting
+XGB_ETA <- 0.1 # learning rate
+XGB_SUBSAMPLE <- 0.8 # 80% of rows per tree
+XGB_COLSAMPLE <- 0.8 # 80% of features per tree
+XGB_WEIGHT_POWER <- 1.0 # exponent on inverse-frequency weights (same logic as RF)
 XGB_SEED <- 2026
 XGB_NTHREAD <- max(1, parallel::detectCores() - 1)
 ```
 
-#### Hyperparameter tuning
+#### Hyperparameter tuning - Grid search
 
 Key hyperparameters for XGBoost include:
 
@@ -1389,14 +1393,14 @@ xgb_params <- list(
 
 ```{r xgboost-grid, cache=TRUE}
 train_grid <- model_features %>% filter(year(Start) <= 2021)
-val_data   <- model_features %>% filter(year(Start) == 2022)
+val_data <- model_features %>% filter(year(Start) == 2022)
 
 dtrain_grid_B <- create_dmatrix(train_grid, PARTITION_B)
-dval_B_gs     <- create_dmatrix(val_data,   PARTITION_B)
+dval_B_gs <- create_dmatrix(val_data, PARTITION_B)
 
 param_grid <- expand.grid(
-  max_depth        = c(3, 4, 5, 6),
-  nrounds          = c(100, 200, 300, 500),
+  max_depth = c(3, 4, 5, 6),
+  nrounds = c(100, 200, 300, 500),
   min_child_weight = c(1, 10)
 )
 
@@ -1521,15 +1525,18 @@ class_recall_xgb(xgb_B_weighted, dtest_B, test_data) %>% print()
 
 Results show that the weighted version (Partition B) achieves the highest Macro F1 score (0.428) and significantly improves recall for the Poor class (61.1%) compared to the unweighted version (8.4%). However, this comes at the cost of overall accuracy, which drops to 49.7%. The unweighted version of Partition B achieves 62.2% accuracy, but a slightly lower 0.412 Macro F1.
 
-#### Feature importance: XGBoost vs RF
+#### Confusion matrix
 
-Both XGBoost and RF provide feature importance metrics, but they are based on different principles. XGBoost's default importance is gain-based, which measures the improvement in the loss function from splits on that feature. However, this can be misleading because it can inflate the importance of features that appear in many splits (like lags) even if their marginal contribution is small.
+```{r}
+p_xgb <- predict_xgb(xgb_B_weighted, dtest_B, test_data)
+plot_confusion_matrix(p_xgb$actual, p_xgb$preds, "Confusion Matrix: XGBoost Partition B (weighted)")
+```
 
-Both XGBoost and RF importance are computed using the **permutation method**: each feature is randomly shuffled on the test set, and the drop in accuracy is recorded. A larger drop means the model relies more on that feature. This puts both models on the same footing — comparing XGBoost's internal gain-based importance to RF's permutation importance would introduce a confound (different metrics, not different models).
+#### Feature importance
 
 ```{r}
 xgb_pred_wrapper <- function(object, newdata) {
-  dm    <- xgb.DMatrix(as.matrix(newdata))
+  dm <- xgb.DMatrix(as.matrix(newdata))
   preds <- as.integer(predict(object, dm)) + 1L
   factor(as.character(preds), levels = c("1", "2", "3", "4"))
 }
@@ -1543,12 +1550,12 @@ xgb_imp_perm_B <- vi(
   target = test_data$AQI_p24,
   metric = "accuracy",
   pred_wrapper = xgb_pred_wrapper,
-  nsim         = 5
+  nsim = 5
 )
 
 vip(xgb_imp_perm_B, num_features = 30, geom = "col") +
   labs(
-    title    = "Permutation-based Variable Importance",
+    title = "Permutation-based Variable Importance",
     subtitle = "Accuracy metric, 5 permutations"
   ) +
   theme_minimal()
@@ -1569,20 +1576,17 @@ This model assumes meaningful distances between feature vectors, so all numeric 
 ```{r}
 library(kknn) # weighted kNN
 
-KNN_K_A <- 98 # tuned by LOO-CV; plateau visible above k ~ 80
-KNN_K_B <- 72 # tuned by LOO-CV
-KNN_KERNEL_A <- "triangular" # distance-weighted voting: nearer neighbours count more
-KNN_KERNEL_B <- "triangular"   # chosen by LOO-CV for Partition B
 KNN_DISTANCE <- 2 # p=2 = Euclidean distance
 KNN_TUNE_N <- 5000 # training rows used for LOO-CV tuning
-KNN_KMAX <- 150 # upper bound for k search
+KNN_KMAX <- 100 # upper bound for k search
 ```
 
 #### Hyperparameter Tuning
 
-We do LOOCV (Leave One Out Cross Validation) for k = 1 to KNN_MAX to find the optimal k and kernel. 
+We do LOOCV (Leave One Out Cross Validation) for k = 1 to KNN_KMAX to find the optimal k and kernel. 
 ```{r}
 # subsample for tuning
+set.seed(2026)
 tune_sample_idx <- sample(nrow(train_data), KNN_TUNE_N)
 
 # kernels to try
@@ -1602,48 +1606,18 @@ cv_knn_B <- tune_knn_cv(PARTITION_B)
 ```
 
 ```{r}
+KNN_K_A      <- cv_knn_A$best.parameters$k
+KNN_KERNEL_A <- cv_knn_A$best.parameters$kernel
+KNN_K_B      <- cv_knn_B$best.parameters$k
+KNN_KERNEL_B <- cv_knn_B$best.parameters$kernel
 
-loo_curve <- function(cv_obj, part_label) {
-  map_dfr(kernels, function(k_name) {
-    tibble(k = seq_len(nrow(cv_obj$MISCLASS)),
-           acc = 1 - cv_obj$MISCLASS[, k_name],
-           kernel = k_name,
-           partition = part_label)
-  })
-}
-
-loo_all <- bind_rows(
-  loo_curve(cv_knn_A, "A - pollutants only"),
-  loo_curve(cv_knn_B, "B - all features")
-)
-
-best_pts <- loo_all %>%
-  slice_max(acc, n = 1, with_ties = FALSE, by = c(partition, kernel))
-
-loo_all %>%
-  ggplot(aes(k, acc * 100, color = kernel)) +
-  geom_line(linewidth = 0.9, alpha = 0.85) +
-  geom_point(data = best_pts, aes(k, acc * 100),
-             size = 3, shape = 21, fill = "white", stroke = 1.5) +
-  facet_wrap(~ partition) +
-  scale_color_manual(values = c("rectangular"  = "#2c7bb6",
-                                "triangular"   = "#d7191c",
-                                "epanechnikov" = "#1a9641")) +
-  labs(
-    title    = "kNN LOOCV (n = 5 000)",
-    subtitle = paste0(
-      "Partition A: k=", KNN_K_A, " ", KNN_KERNEL_A, " (",
-      round((1 - min(cv_knn_A$MISCLASS[, KNN_KERNEL_A])) * 100, 1), "%)  |  ",
-      "Partition B: k=", KNN_K_B, " ", KNN_KERNEL_B, " (",
-      round((1 - min(cv_knn_B$MISCLASS[, KNN_KERNEL_B])) * 100, 1), "%)"
-    ),
-    x = "k (neighbours)", y = "LOO Accuracy (%)", color = "Kernel"
-  ) +
-  theme_minimal()
+cat("Best A: k=", KNN_K_A, " kernel=", KNN_KERNEL_A, "\n")
+cat("Best B: k=", KNN_K_B, " kernel=", KNN_KERNEL_B, "\n")
 ```
 
-The accuracy curve plateaus around k = 80–100 for Partition A and k = 50–60 for Partition B.
-Weighted kernels (triangular, Epanechnikov) consistently outperform rectangular voting because they down-weight distant neighbours — neighbours that share only a superficial similarity contribute less to the vote.
+The triangular kernel wins for both partitions, with k = 30 for Partition A and k = 20 for Partition B.
+
+The triangular kernel assigns higher weights to closer neighbors, and lower weights to farther neighbors.
 
 #### Running KNN and Evaluation
 
@@ -1696,13 +1670,20 @@ cat("\n--- Partition B ---\n")
 class_recall_knn(knn_B, test_data) %>% print()
 ```
 
-Partition B overperforms A by a few percent, which again confirms that weather features add predictive value beyond pollutant lags.
-Both partitions achieve >= 97.9% +-1 class accuracy, meaning that when the model is wrong it is almost always off by just one AQI category.
+Partition B overperforms A in Macro F1 slightly (0.334 vs 0.369), which again suggests that weather features add predictive value beyond pollutant lags.
+Both partitions achieve >= 97% +-1 class accuracy, meaning that when the model is wrong it is almost always off by just one AQI category.
 
 Compared to RF, kNN does not offer class weight parameter. This means that kNN is affected by class imbalance more severely, as the imbalance directly shapes its predictions (model almost never outputs Good or Poor).
 
 We also tried oversampling the training data, which helped for Poor recall, but overall accuracy dropped significantly (to 47.1%), along with +-1 accuracy. 
 We opted not to include that model, as the trade off is worse than the class weighting approach used for RF.
+
+#### Confusion matrix
+
+```{r}
+p_knn <- predict_knn(knn_B, test_data)
+plot_confusion_matrix(p_knn$actual, p_knn$preds, "Confusion Matrix: kNN Partition B")
+```
 
 ### Ordinal regression
 
@@ -1777,6 +1758,13 @@ cat("--- Partition A ---\n")
 class_recall_ordinal(ordinal_A, test_data, PARTITION_A) %>% print()
 cat("\n--- Partition B ---\n")
 class_recall_ordinal(ordinal_B, test_data, PARTITION_B) %>% print()
+```
+
+#### Confusion matrix
+
+```{r}
+p_ord <- predict_ordinal(ordinal_B, test_data, PARTITION_B)
+plot_confusion_matrix(p_ord$actual, p_ord$preds, "Confusion Matrix: Ordinal Regression Partition B")
 ```
 
 #### Assumption check: Proportional Odds (Brant test)
@@ -1885,7 +1873,8 @@ The accuracy and recall for this model is not very significantly changed compare
 predict_multinom <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
   actual <- as.integer(as.character(test_data$AQI_p24))
-  preds <- as.integer(as.character(predict(model, newdata = test_features)))
+  probs  <- predictvglm(model, newdata = test_features, type = "response")
+  preds  <- max.col(probs)
   list(actual = actual, preds = preds)
 }
 
@@ -1914,34 +1903,11 @@ class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% print()
 #### Conf matrix
 ```{r}
 preds_multinom <- predict_multinom(multinomial_B, test_data, PARTITION_B)
-actual_cls <- preds_multinom$actual
-pred_cls <- preds_multinom$preds
+actual_cls  <- preds_multinom$actual
+pred_cls    <- preds_multinom$preds
 act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
-table(actual_cls, pred_cls)
 
-# row-normalised confusion df
-act_pred_tb %>%
-  mutate(
-    Actual = factor(Actual, levels = 1:4, labels = aqi_levels),
-    Predicted = factor(Predicted, levels = 1:4, labels = aqi_levels)
-  ) %>%
-  count(Actual, Predicted) %>%
-  complete(Actual, Predicted, fill = list(n = 0)) %>%
-  mutate(Recall = n / sum(n), .by = Actual) %>%
-  ggplot(aes(Predicted, Actual, fill = Recall)) +
-  geom_tile(color = "white", linewidth = 0.5) +
-  geom_text(aes(label = if_else(n > 0, sprintf("%.0f%%\n(n=%d)", Recall * 100, n), "")),  
-            size = 2.8, lineheight = 1.2) +
-  scale_fill_gradient(low = "white", high = "steelblue",
-                      labels = scales::percent, limits = c(0, 1)) +
-  scale_x_discrete(position = "top") +
-  scale_y_discrete(limits = rev(aqi_levels)) +
-  labs(
-    title = "Confusion Matrix for RF Partition B (weighted, pwr=1.7)",
-    subtitle = "Each cell = % of true class predicted as that column",
-    x = "Predicted class", y = "True (Actual) class", fill = "Recall"
-  ) +
-  theme_minimal() 
+plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: Multinomial Regression Partition B")
 ```
 
 #### Stats test multinominal
