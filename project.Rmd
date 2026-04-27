@@ -820,6 +820,39 @@ PARTITION_B_ALL <- model_features %>%
 
 ```
 
+## Data Budgeting
+
+```{r}
+# Split model_features into train / test by year.
+train_data <- model_features %>%
+  filter(year(Start) <= 2022) %>%
+  select(-Start) %>%
+  # AQI_p24 is converted to an ordered factor (1-4) for classification.
+  mutate(AQI_p24 = factor(AQI_p24, levels = 1:4, ordered = TRUE))
+
+test_data <- model_features %>%
+  filter(year(Start) >= 2023) %>%
+  select(-Start) %>%
+  mutate(AQI_p24 = factor(AQI_p24, levels = 1:4, ordered = TRUE))
+
+cat("Train rows:", nrow(train_data), " | Test rows:", nrow(test_data), "\n")
+```
+
+```{r}
+# Class distribution per split (imbalance check)
+bind_rows(
+  train_data %>% count(AQI_p24) %>% mutate(Split = "Train", pct = round(100 * n / sum(n), 1)),
+  test_data  %>% count(AQI_p24) %>% mutate(Split = "Test",  pct = round(100 * n / sum(n), 1))
+) %>%
+  mutate(Label = aqi_levels[as.integer(AQI_p24)]) %>%
+  select(Split, Class = AQI_p24, Label, Count = n, `Pct (%)` = pct) %>%
+  arrange(Split, Class)
+```
+
+Class 4 (Poor) makes up 6.5% of the training data and 3.3% of the test data.
+All four classes are represented, but Poor is a minority class.
+We report per-class recall in every evaluation to make this limitation transparent.
+
 ## Collinearity Analysis (VIF)
 
 Partition B includes all 18 weather features, on top of pollutants (Partition A). Before any model is fitted, we should check whether we have multicollinearity among the predictors (whether two predictors carry almost identical information). This could make our feature importance in RF unreliable, for example.
@@ -920,39 +953,6 @@ The final clean partition has 22 features with max VIF of 4.5, which is acceptab
 
 All models are trained on 2017-2022 data and evaluated on 2023-2024.
 This split ensures no future observations leak into the training data.
-
-## Data Budgeting
-
-```{r}
-# Split model_features into train / test by year.
-train_data <- model_features %>%
-  filter(year(Start) <= 2022) %>%
-  select(-Start) %>%
-  # AQI_p24 is converted to an ordered factor (1-4) for classification.
-  mutate(AQI_p24 = factor(AQI_p24, levels = 1:4, ordered = TRUE))
-
-test_data <- model_features %>%
-  filter(year(Start) >= 2023) %>%
-  select(-Start) %>%
-  mutate(AQI_p24 = factor(AQI_p24, levels = 1:4, ordered = TRUE))
-
-cat("Train rows:", nrow(train_data), " | Test rows:", nrow(test_data), "\n")
-```
-
-```{r}
-# Class distribution per split (imbalance check)
-bind_rows(
-  train_data %>% count(AQI_p24) %>% mutate(Split = "Train", pct = round(100 * n / sum(n), 1)),
-  test_data  %>% count(AQI_p24) %>% mutate(Split = "Test",  pct = round(100 * n / sum(n), 1))
-) %>%
-  mutate(Label = aqi_levels[as.integer(AQI_p24)]) %>%
-  select(Split, Class = AQI_p24, Label, Count = n, `Pct (%)` = pct) %>%
-  arrange(Split, Class)
-```
-
-Class 4 (Poor) makes up 6.5% of the training data and 3.3% of the test data.
-All four classes are represented, but Poor is a minority class.
-We report per-class recall in every evaluation to make this limitation transparent.
 
 ## Metrics
 
