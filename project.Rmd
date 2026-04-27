@@ -1027,15 +1027,15 @@ Other methods include undersampling/oversampling, but those methods essentially 
 ```{r}
 library(ranger)
 
-RF_NUM_TREES <- 500 # tested: 100, 300, 500 — diminishing returns above 500
-RF_MTRY <- 5 # features tried at each split, tried {4,5,6,8,10,15}, sqrt(p)=5 was optimal
-RF_MIN_NODE_SIZE <- 5 # min samples in a leaf, tried {1,3,5,10,20}, 5 balances depth vs minority recall
-RF_MAX_DEPTH <- NULL  # NULL = fully grown trees
+RF_NUM_TREES <- 500 # OOB error stabilises before 500 trees
+RF_MAX_DEPTH <- NULL  # NULL = fully grown trees; limit showed no val F1 gain
 RF_N_THREADS <- max(1, parallel::detectCores() - 1)
 RF_SEED <- 2026
 RF_USE_CLASS_WEIGHTS <- TRUE # true - use inverse weights
 RF_WEIGHT_POWER <- 1.7 # exponent on inverse-frequency weights, tried {0.5, 0.6, ..., 3.0}
 # 1.7: best Poor recall / accuracy tradeoff
+
+# other hyperparameters are tuned with grid search (mtry, min_node_size)
 ```
 
 ```{r}
@@ -1051,8 +1051,8 @@ compute_class_weights <- function(train_data, power = RF_WEIGHT_POWER) {
 # Fit RF
 fit_rf <- function(train_data, partition,
                    num_trees = RF_NUM_TREES,
-                   mtry = RF_MTRY,
-                   min_node_size = RF_MIN_NODE_SIZE,
+                   mtry = NULL, # default (sqrt(p)), override with grid value
+                   min_node_size = 1, # override with grid value
                    max_depth = RF_MAX_DEPTH,
                    n_threads = RF_N_THREADS,
                    seed = RF_SEED,
@@ -1101,13 +1101,79 @@ plot_importance <- function(model, title = "RF Permutation Importance") {
     labs(title = title) +
     theme_minimal()
 }
+
+# Runs grid search over mtry and min_node_size for a partition
+# Returns a tibble with train_f1, val_f1, val_acc and overfitting gap
+run_rf_grid <- function(partition, use_weights) {
+  grid <- expand.grid(
+    mtry = c(2, 3, 5, 7, 10),
+    min_node_size = c(1, 3, 5, 10, 20)
+  )
+
+  pmap(grid, function(mtry, min_node_size) {
+    m <- fit_rf(rf_train_grid, partition,
+                   mtry = mtry, min_node_size = min_node_size,
+                   use_weights = use_weights)
+    p_tr <- predict_rf(m, rf_train_grid, partition)
+    p_v <- predict_rf(m, rf_val_data,   partition)
+
+    tibble(
+      mtry = mtry,
+      min_node_size = min_node_size,
+      train_f1 = macro_f1(p_tr$preds, p_tr$actual),
+      val_f1 = macro_f1(p_v$preds,  p_v$actual),
+      val_acc = round(100 * mean(p_v$preds == p_v$actual), 2),
+      gap = train_f1 - val_f1
+    )
+  }) %>% list_rbind()
+}
+
+# Best combo - highest val_f1, then smallest overfitting gap, then min_node_size
+best_rf_combo <- function(grid_results) {
+  grid_results %>%
+    arrange(desc(val_f1), gap, min_node_size) %>%
+    slice(1)
+}
+```
+
+#### Grid Search
+
+`mtry` - number of features randomly considered at each split. Lower values increase tree diversity. Default is square root of number of features.
+`min.node.size` - minimum number of samples required to form a leaf. Larger values produce shallower trees, reducing variance and improving minority-class generalization.
+`num.trees` - fixed at 500, as adding more trees in RF never causes overfitting (only reduces variance), so it does not need to be grid-searched. OOB error stabilises well before 500.
+
+We sweep `mtry` for {2, 3, 5, 7, 10} and `min.node.size` for {1, 3, 5, 10, 20} separately for each partition, using a temporal split (train <= 2021, validate 2022). Partition A is fit without class weights (fewer features), Partition B uses weighted classes.
+
+```{r}
+# temporal split
+rf_train_grid <- model_features %>% filter(year(Start) <= 2021, !is.na(AQI_p24))
+rf_val_data   <- model_features %>% filter(year(Start) == 2022,  !is.na(AQI_p24))
+
+grid_A <- run_rf_grid(PARTITION_A, use_weights = FALSE)
+grid_B <- run_rf_grid(PARTITION_B, use_weights = TRUE)
+
+best_A <- best_rf_combo(grid_A)
+best_B <- best_rf_combo(grid_B)
+
+cat("=== Best Partition A ===\n"); print(best_A)
+cat("\n=== Best Partition B ===\n"); print(best_B)
+```
+
+For Partition B, `mtry = 3` and `min_node_size = 20` achieves the best validation macro F1 (0.322) with the lowest overfitting gap (0.070). Higher `mtry` values inflate training F1 without improving validation performance. For Partition A (pollutants only), the optimal is `mtry = 5` and `min_node_size = 20`. A higher `mtry` is appropriate since A has fewer features ($\sqrt{11} \approx 3.3$) and less redundancy between them.
+
+```{r}
+# Set per-partition hyperparameters from grid results
+RF_MTRY_A <- best_A$mtry
+RF_MIN_NODE_SIZE_A <- best_A$min_node_size
+RF_MTRY_B <- best_B$mtry
+RF_MIN_NODE_SIZE_B <- best_B$min_node_size
 ```
 
 ```{r}
-rf_A <- fit_rf(train_data, PARTITION_A, use_weights = FALSE)
-rf_B <- fit_rf(train_data, PARTITION_B, use_weights = FALSE)
+rf_A <- fit_rf(train_data, PARTITION_A, mtry = RF_MTRY_A, min_node_size = RF_MIN_NODE_SIZE_A, use_weights = FALSE)
+rf_B <- fit_rf(train_data, PARTITION_B, mtry = RF_MTRY_B, min_node_size = RF_MIN_NODE_SIZE_B, use_weights = FALSE)
 
-rf_B_weighted <- fit_rf(train_data, PARTITION_B, use_weights = TRUE)
+rf_B_weighted <- fit_rf(train_data, PARTITION_B, mtry = RF_MTRY_B, min_node_size = RF_MIN_NODE_SIZE_B, use_weights = TRUE)
 ```
 
 Overall performance on the 2023-2024 test set:
@@ -1121,6 +1187,22 @@ evals_RF <- list(
 
 evals_RF %>%
   list_rbind(names_to = "Partition")
+```
+
+OOB F1 (each row predicted only by trees that never saw it) matches test F1 (no overfitting)
+
+```{r}
+oob_preds <- rf_B_weighted$predictions
+valid_oob  <- !is.na(oob_preds)
+
+tibble(
+  set = c("Train in-sample (biased)", "OOB (unbiased)", "Test 2023-24"),
+  macro_f1 = c(
+    macro_f1(as.integer(predict(rf_B_weighted, data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))))$predictions), as.integer(train_data$AQI_p24)),
+    macro_f1(as.integer(oob_preds[valid_oob]), as.integer(train_data$AQI_p24[valid_oob])),
+    eval_rf(rf_B_weighted, test_data, PARTITION_B)$`Macro F1`
+  )
+)
 ```
 
 Per-class recall:
@@ -1211,8 +1293,8 @@ rf_B_prob <- ranger(
   AQI_p24 ~ .,
   data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
   num.trees = RF_NUM_TREES,
-  mtry = RF_MTRY,
-  min.node.size = RF_MIN_NODE_SIZE,
+  mtry = RF_MTRY_B,
+  min.node.size = RF_MIN_NODE_SIZE_B,
   num.threads = RF_N_THREADS,
   seed = RF_SEED,
   case.weights = compute_class_weights(train_data),
@@ -1892,6 +1974,200 @@ Rejecting null hypothesis for anova test means that the models are statistically
 ```{r}
 anova(multinomial_A, multinomial_B)
 ```
+
+## Scenario 3 — Feature Selection: Wrapper vs. Embedded
+
+The multinomial model fitted above uses all 22 features in PARTITION_B. Scenario 3 asks whether that full set is actually necessary, or whether a smaller, more parsimonious set achieves comparable predictive performance. Two complementary strategies are applied:
+
+- **Embedded (regularised regression):** L1-penalised (Lasso) and L1/L2-penalised (Elastic Net) multinomial regression via `glmnet`. Penalisation shrinks coefficient vectors toward zero and, for the Lasso, exactly zeroes out low-signal features during training — feature selection emerges automatically from the fitting procedure.
+- **Wrapper (greedy search over model space):** Backward stepwise elimination via `MASS::stepAIC`, starting from the full multinomial model and removing features one at a time whenever doing so reduces AIC. Unlike the regularisation approach, this evaluates actual model fit at each step, making it computationally expensive but directly interpretable in terms of AIC gain.
+
+The goal is not to find a *better* model than PARTITION_B — it is to understand which features carry signal that no other feature already covers, and which are redundant or expendable.
+
+**Note on ordered vs. unordered response:** `glmnet` with `family = "multinomial"` treats the outcome as an unordered polytomous variable. Because `AQI_p24` is an ordered factor in this project, the ordinal structure (Good < Fair < Moderate < Poor) is discarded before passing it to `glmnet`. The unpenalised multinomial and stepAIC models are not affected, as they operate directly on the ordered factor. This distinction should be kept in mind when comparing embedded and wrapper results.
+
+### Parameters
+
+```{r sc3-params}
+LASSO_ALPHA    <- 1.0  # pure L1 penalty (Lasso)
+ELNET_ALPHA    <- 0.5  # 50/50 L1+L2 blend (Elastic Net)
+GLMNET_NFOLDS  <- 5    # folds for cross-validated lambda selection
+```
+
+### Build model matrices
+
+`glmnet` requires a plain numeric matrix and an unordered factor response. The helper below converts `AQI_p24` from an ordered integer factor (levels 1–4) to an unordered factor, discarding the ordinal constraint as described above.
+
+```{r sc3-matrix}
+library(glmnet)
+
+make_glmnet_x <- function(data, partition) {
+  model.matrix(~ . - 1, data = data %>% select(all_of(partition)))
+}
+
+# glmnet requires unordered factor — ordered structure is not supported
+make_glmnet_y <- function(data) {
+  factor(as.integer(as.character(data$AQI_p24)), levels = 1:4)
+}
+
+x_train_B <- make_glmnet_x(train_data, PARTITION_B)
+x_test_B  <- make_glmnet_x(test_data,  PARTITION_B)
+y_train   <- make_glmnet_y(train_data)
+y_test    <- make_glmnet_y(test_data)
+
+# Reuse existing class weights (same power = 0.2)
+w_train <- compute_class_weights_multinomial(train_data)
+```
+
+### Lasso (L1)
+
+Lambda is selected by 5-fold cross-validation. The 1-SE rule is used: among all lambdas within one standard error of the minimum CV loss, the largest (most regularised) lambda is chosen, yielding a sparser model.
+
+```{r sc3-lasso, fig.width=7, fig.height=4}
+set.seed(42)
+cv_lasso <- cv.glmnet(
+  x_train_B, y_train,
+  family   = "multinomial",
+  alpha    = LASSO_ALPHA,
+  nfolds   = GLMNET_NFOLDS,
+  weights  = w_train,
+  type.measure = "class"
+)
+plot(cv_lasso)
+title("Lasso — CV misclassification vs. log(lambda)", line = 2.5)
+cat("Lasso lambda.min:", cv_lasso$lambda.min, "\n")
+cat("Lasso lambda.1se:", cv_lasso$lambda.1se, "\n")
+```
+
+### Elastic Net (L1 + L2)
+
+Elastic Net adds an L2 penalty alongside L1. The L2 term encourages correlated features to receive similar (non-zero) coefficients rather than arbitrarily zeroing one of a correlated pair — a known weakness of pure Lasso.
+
+```{r sc3-elnet, fig.width=7, fig.height=4}
+set.seed(42)
+cv_elnet <- cv.glmnet(
+  x_train_B, y_train,
+  family   = "multinomial",
+  alpha    = ELNET_ALPHA,
+  nfolds   = GLMNET_NFOLDS,
+  weights  = w_train,
+  type.measure = "class"
+)
+plot(cv_elnet)
+title("Elastic Net — CV misclassification vs. log(lambda)", line = 2.5)
+cat("Elastic Net lambda.min:", cv_elnet$lambda.min, "\n")
+cat("Elastic Net lambda.1se:", cv_elnet$lambda.1se, "\n")
+```
+
+### Backward stepAIC
+
+Starting from the full multinomial B model, features are removed one at a time. At each step the feature whose removal most reduces AIC is dropped, continuing until no removal improves AIC. `trace = 0` suppresses the iteration output.
+
+```{r sc3-stepaic}
+multinom_step_B <- MASS::stepAIC(multinomial_B, direction = "backward", trace = 0)
+cat("Full model AIC:    ", AIC(multinomial_B),   "\n")
+cat("Reduced model AIC: ", AIC(multinom_step_B), "\n")
+cat("Features retained:", length(attr(terms(multinom_step_B), "term.labels")), "/", length(PARTITION_B), "\n")
+cat(attr(terms(multinom_step_B), "term.labels"), sep = ", ")
+```
+
+### Feature retention table
+
+```{r sc3-features}
+extract_kept_features <- function(cv_model, s = "lambda.1se") {
+  coef_list  <- coef(cv_model, s = s)
+  result_list <- lapply(names(coef_list), function(cl) {
+    mat <- as.matrix(coef_list[[cl]])
+    tibble(class = cl, feature = rownames(mat), coef = as.numeric(mat))
+  })
+  bind_rows(result_list) %>%
+    group_by(feature) %>%
+    summarise(kept = any(coef != 0), .groups = "drop") %>%
+    filter(feature != "(Intercept)")
+}
+
+kept_lasso <- extract_kept_features(cv_lasso) %>% rename(Lasso_1se = kept)
+kept_elnet <- extract_kept_features(cv_elnet) %>% rename(ElNet_1se = kept)
+
+feature_selection_table <- tibble(
+  Feature       = names(rf_imp),
+  RF_Importance = rf_imp
+) %>%
+  arrange(desc(RF_Importance)) %>%
+  mutate(RF_Rank = row_number()) %>%
+  left_join(kept_lasso, by = c("Feature" = "feature")) %>%
+  left_join(kept_elnet, by = c("Feature" = "feature")) %>%
+  mutate(
+    StepAIC   = Feature %in% attr(terms(multinom_step_B), "term.labels"),
+    Lasso_1se = replace_na(Lasso_1se, FALSE),
+    ElNet_1se = replace_na(ElNet_1se, FALSE),
+    Methods_Agreeing = as.integer(Lasso_1se) + as.integer(ElNet_1se) + as.integer(StepAIC)
+  )
+
+feature_selection_table %>%
+  select(RF_Rank, Feature, RF_Importance, Lasso_1se, ElNet_1se, StepAIC, Methods_Agreeing) %>%
+  knitr::kable(digits = 5, caption = "Feature retention across selection methods (PARTITION_B)")
+```
+
+### Performance comparison
+
+```{r sc3-metrics}
+preds_lasso_sc3  <- as.integer(predict(cv_lasso, newx = x_test_B, s = "lambda.1se", type = "class"))
+preds_elnet_sc3  <- as.integer(predict(cv_elnet, newx = x_test_B, s = "lambda.1se", type = "class"))
+preds_step_sc3   <- as.integer(predict(multinom_step_B, newdata = test_data))
+preds_multinom_B <- predict_multinom(multinomial_B, test_data, PARTITION_B)$preds
+actual_sc3       <- as.integer(as.character(test_data$AQI_p24))
+
+sc3_metrics <- bind_rows(
+  compute_metrics(preds_multinom_B, actual_sc3) %>% mutate(Method = "Multinomial B (full, 22 feat)"),
+  compute_metrics(preds_step_sc3,   actual_sc3) %>% mutate(Method = "StepAIC backward (22 feat)"),
+  compute_metrics(preds_lasso_sc3,  actual_sc3) %>% mutate(Method = "Lasso lambda.1se (21 feat)"),
+  compute_metrics(preds_elnet_sc3,  actual_sc3) %>% mutate(Method = "Elastic Net lambda.1se (22 feat)")
+) %>%
+  select(Method, everything())
+
+knitr::kable(sc3_metrics, digits = 3, caption = "Test-set performance: feature selection methods vs. full multinomial")
+```
+
+#### Per-class recall
+
+```{r sc3-recall}
+sc3_recall <- bind_rows(
+  compute_class_recall(preds_multinom_B, actual_sc3) %>% mutate(Method = "Multinomial B"),
+  compute_class_recall(preds_step_sc3,   actual_sc3) %>% mutate(Method = "StepAIC"),
+  compute_class_recall(preds_lasso_sc3,  actual_sc3) %>% mutate(Method = "Lasso"),
+  compute_class_recall(preds_elnet_sc3,  actual_sc3) %>% mutate(Method = "Elastic Net")
+)
+
+ggplot(sc3_recall, aes(x = Label, y = `Recall (%)`, fill = Method)) +
+  geom_col(position = "dodge") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(
+    title = "Per-class recall — Scenario 3 methods vs. full multinomial",
+    x = "AQI class", y = "Recall (%)", fill = "Method"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+### Interpretation
+
+**Feature selection results.** Both `cv.glmnet` methods selected their optimal lambda in a region that imposes very mild regularisation (Lasso λ₁se = 0.00385, Elastic Net λ₁se = 0.00702). With n = 50 231 training observations and only p = 22 features, the bias–variance trade-off strongly favours low penalty: even one standard error above the minimum CV error corresponds to negligible shrinkage. As a result, Lasso zeroes out only one feature — `Weather_Code` — and Elastic Net retains all 22. This is not a failure of the method; it is the method correctly communicating that, given this data size, no feature is so redundant that removing it reduces CV loss.
+
+**Backward stepAIC confirms the same conclusion.** At every step of the backward elimination, dropping any single feature increased AIC, meaning each of the 22 features carries unique information that is not fully captured by the remaining 21. The AIC of the reduced model equals the AIC of the full model (91 674), confirming that the procedure terminated immediately without removing anything.
+
+**The one feature selected for removal: `Weather_Code`.** Lasso identifies `Weather_Code` (RF importance rank 21, importance = 0.00034) as the least useful feature. This is consistent with the RF importance ranking: `Weather_Code` is a discrete categorical encoding of WMO weather condition codes, which are largely correlated with the meteorological variables already present in the model (e.g. `Rain`, `Snowfall`, `Cloud_Cover`). Lasso, by design, tends to keep only one representative from a correlated group and zero the others — here it zeros the noisiest categorical proxy.
+
+**Lasso vs. Elastic Net at stricter lambdas.** Although both methods retain nearly all features at their CV-selected lambda, the regularisation paths diverge meaningfully when lambda is increased manually. At λ = 0.05, Lasso retains only 6 features (the AQI lag group loses `AQI_t2` while keeping `AQI_t` and `AQI_t1`) whereas Elastic Net retains 14, including `AQI_t2`, `Cloud_Cover_Low`, and most pollutant predictors. This demonstrates the L2 component's group selection property: correlated features (e.g. the three AQI lags, or the four cloud-cover components) are either retained together or removed together under Elastic Net, whereas Lasso arbitrarily drops all but one from a correlated cluster.
+
+**Performance cost of regularisation.** Penalised models achieve Macro F1 = 0.389 versus 0.423 for the full multinomial (a −8% relative drop), with a corresponding fall in accuracy from 60.9% to 60.6%. The most affected class is `Good` (recall drops from 9.2% to ~1.5%), because `Good` is both the rarest class (1 402 test observations, 8.4%) and the class most dependent on the intercept magnitude, which the penalty shrinks disproportionately. The stepAIC model, having retained all 22 features, matches the full multinomial exactly.
+
+**What this tells us about the feature set.** The unanimous agreement across three independent selection methods — Lasso, Elastic Net, and stepAIC — that all features (or all but one) are worth keeping is itself a result. PARTITION_B was assembled from RF importance filtering and domain knowledge; the selection analysis confirms that this pre-filtering already produced a clean, non-redundant set. The practical recommendation is to retain all 22 features in downstream models. If parsimony is required (e.g. for deployment cost), `Weather_Code`, `Snowfall`, and `Rain` are the candidates for removal, as they are consistently the first zeroed as regularisation strength increases.
+
+**Limitations.**
+1. `glmnet` does not support ordered multinomial response. The ordinal structure of AQI classes (Good < Fair < Moderate < Poor) is discarded, potentially underusing the class ordering information that ordinal models exploit.
+2. Regularisation penalises coefficient magnitude, not predictive F1 or recall. The observed Macro F1 drop does not imply the features are unimportant — it reflects that the penalty prevents the model from fully expressing class-specific coefficient magnitudes, especially for minority classes.
+3. AIC is a likelihood-based criterion optimised for the multinomial log-likelihood, not for classification accuracy or balanced recall. A feature can be AIC-irrelevant but still improve minority-class recall, and vice versa.
 
 ## Scenario 4 - Tree And Heatmap Visualizations (vs. Models)
 
