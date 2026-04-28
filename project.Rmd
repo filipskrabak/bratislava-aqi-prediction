@@ -45,11 +45,11 @@ set.seed(2026) # reproducibility
 # Introduction
 
 The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data from Mamateyova street.
-This requires us to merge two datasets - the pollutants dataset and the weather dataset. This is a multi-class classification problem, since AQI is categorized into 6 classes, from "Good" to "Extremely poor".
+This requires us to merge two datasets - the pollutants dataset and the weather dataset. This is a multi-class classification problem, since AQI is categorized into 6 classes, from "Good" to "Extremely poor". Since Bratislava has mostly Fair and Moderate air quality, the dataset is imbalanced, and we have very few examples of Very Poor and Extremely Poor class, which we address by merging AQI into 4 classes (this is explained later).
 
 ## Project Hypothesis:
 
-Current and lagged pollutant concentrations, combined with concurrent weather conditions, carry sufficient information to classify the AQI 24 hours ahead in Bratislava at accuracy meaningfully above a persistence baseline. Weather features provide additional predictive value beyond pollutants alone.
+Current and lagged pollutant concentrations, combined with concurrent weather conditions, carry sufficient information to classify the AQI 24 hours ahead in Bratislava with Macro F1 meaningfully above a persistence baseline, with emphasis on correctly identifying the minority Poor class. Weather features provide additional predictive value beyond pollutants alone.
 
 # Pollutants Dataset
 
@@ -1038,8 +1038,8 @@ RF_MAX_DEPTH <- NULL  # NULL = fully grown trees; limit showed no val F1 gain
 RF_N_THREADS <- max(1, parallel::detectCores() - 1)
 RF_SEED <- 2026
 RF_USE_CLASS_WEIGHTS <- TRUE # true - use inverse weights
-RF_WEIGHT_POWER <- 1.7 # exponent on inverse-frequency weights, tried {0.5, 0.6, ..., 3.0}
-# 1.7: best Poor recall / accuracy tradeoff
+RF_WEIGHT_POWER <- 1.2 # exponent on inverse-frequency weights, tried {0.5, 0.6, ..., 3.0}
+# 1.2: best Poor recall / accuracy tradeoff
 
 # other hyperparameters are tuned with grid search (mtry, min_node_size)
 ```
@@ -1164,6 +1164,8 @@ best_B <- best_rf_combo(grid_B)
 cat("=== Best Partition A ===\n"); print(best_A)
 cat("\n=== Best Partition B ===\n"); print(best_B)
 ```
+
+From the grid search results, we can see the results for each partition - which hyperparameters achieved the best validation F1, and what was the overfitting gap (train F1 - val F1).
 
 For Partition B, `mtry = 3` and `min_node_size = 20` achieves the best validation macro F1 (0.322) with the lowest overfitting gap (0.070). Higher `mtry` values inflate training F1 without improving validation performance. For Partition A (pollutants only), the optimal is `mtry = 5` and `min_node_size = 20`.
 
@@ -1785,7 +1787,7 @@ poTest(ordinal_B)
 H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors are violating this assumption, making the modeled probabilities inccorect for categories. 
 
 # Partial Proportional Odds
-As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportioanl odds model which relaxes this assumption on predictors that violates it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories.
+As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportional odds model which relaxes this assumption on predictors that violate it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories.
 
 ```{r}
 library(VGAM)
@@ -1830,7 +1832,7 @@ class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
 
 ### Multinomial regression
-The partial proportional odds model is very close to the full muntinomial regression as only two features are fulfilling the PO assumption. The next step is to try to fit full muntinomial regression, even though the improvment will be very small if at all.
+The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. The next step is to try to fit full multinomial regression, even though the improvement will be very small if at all.
 ```{r}
 MULTINOMIAL_WEIGHT_POWER <- 0.2 # 0 = no reweighting, 1 = fully balanced
 compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
@@ -1905,7 +1907,7 @@ cat("\n--- Partition B ---\n")
 class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% print()
 ```
 
-#### Conf matrix
+#### Confusion matrix
 ```{r}
 preds_multinom <- predict_multinom(multinomial_B, test_data, PARTITION_B)
 actual_cls  <- preds_multinom$actual
@@ -1915,13 +1917,67 @@ act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
 plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: Multinomial Regression Partition B")
 ```
 
-#### Stats test multinominal
-Rejecting null hypothesis for anova test means that the models are statistically different and model B is better.
+#### Assumption check: Linearity of log-odds
+
+The multinomial logistic regression assumes that the log-odds of each class vs the reference class (Good) is a linear function of the continuous predictors. This means that for each predictor, the relationship between the predictor and the log-odds of being in a particular AQI category (Fair, Moderate, Poor) vs being in the Good category should be linear.
+
+We check all continuous predictors in `PARTITION_B` for this assumption. We exclude some variables that are not suitable for this check, such as `Rain` and `Snowfall` which are heavily zero-inflated, `Weather_Code` which is categorical, and `hour` and `month` which are cyclic.
+
 ```{r}
-anova(multinomial_A, multinomial_B)
+skip_vars <- c("Rain", "Snowfall", "Weather_Code", "hour", "month")
+continuous_vars_check <- setdiff(PARTITION_B, skip_vars)
+
+logodds_df <- map_dfr(continuous_vars_check, function(var) {
+  df <- train_data %>%
+    select(x = all_of(var), y = AQI_p24) %>%
+    mutate(y = as.integer(y))
+
+  breaks <- unique(quantile(df$x, probs = seq(0, 1, length.out = 13)))
+
+  if (length(breaks) < 3) return(NULL)
+  df <- df %>% mutate(bin = cut(x, breaks = breaks, include.lowest = TRUE, labels = FALSE))
+
+  bin_stats <- df %>%
+    count(bin, y) %>%
+    #complete(bin, y = 1:4, fill = list(n = 0)) %>%
+    mutate(total = sum(n), prop = n / total, .by=bin) %>% # calculate proportion of each class in the bin
+
+  bin_medians <- df %>%
+    summarise(x_med = median(x), .by = bin) # calculate median of each bin
+
+  bin_stats %>%
+    left_join(bin_medians, by = "bin") %>%
+    group_by(bin) %>%
+    mutate(
+      p_ref = prop[y == 1], # reference class proportion (Good=1) for the bin
+      log_odds = log((prop) / (p_ref)) # log-odds vs reference class (Good=1)
+    ) %>%
+    filter(y != 1) %>%
+    mutate(Class = factor(y, levels = 2:4, labels = c("Fair", "Moderate", "Poor")),
+      variable = var
+    )
+})
+
+ggplot(logodds_df, aes(x_med, log_odds, color = Class)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "loess", se = FALSE, linewidth = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey60") +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    title    = "Linearity of log-odds assumption check",
+    subtitle = "log(P(AQI=k) / P(AQI=Good)) vs predictor bin median",
+    x = "Predictor bin median", y = "log(P(k) / P(Good))", color = "AQI Class"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom"
+  )
 ```
 
-## Scenario 3 — Feature Selection: Wrapper vs. Embedded
+The results are somewhat mixed. For some predictors, the assumptions holds, but is violated for others. AQI_tX features show a very strong linear relationship with log-odds (which makes sense given the temporal autocorrelation of AQI). However, for some weather features (e.g. `O3`, `Wind_Direction`) the relationship is clearly non-linear, which violates the assumption and may lead to suboptimal performance of the multinomial model compared to more flexible methods like Random Forest or XGBoost that do not rely on this assumption.
+
+## Scenario 3 - Feature Selection: Wrapper vs. Embedded
 
 The multinomial model fitted above uses all 22 features in PARTITION_B. By utilizing feature selection methods, it may be possible to find smaller set of predictors that would explain the data better than the full 22 features.
 Two embedded methods and one wrapper one was performed and compared between each other and the base multionomial model.
