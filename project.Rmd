@@ -1985,16 +1985,18 @@ Two embedded methods and one wrapper one was performed and compared between each
 ### Parameters
 
 ```{r}
-LASSO_ALPHA    <- 1.0  # pure L1 penalty (Lasso)
-ELNET_ALPHA    <- 0.5  # 50/50 L1+L2 blend (Elastic Net)
-GLMNET_NFOLDS  <- 5    # folds for cross-validated lambda selection
+library(glmnet)
+
+LASSO_ALPHA <- 1.0 # pure L1 penalty (Lasso)
+ELNET_ALPHA <- 0.5 # 50/50 L1+L2 blend (Elastic Net)
+GLMNET_NFOLDS <- 5 # folds for cross-validated lambda selection
 ```
 
 ### Lasso
 
 Lambda is selected by 10-fold cross-validation. Both the min lambda and 1-SE lambda are computed and showcase on the plot. For evaulation, we will use 1-SE lambda as it picks simpler model within one standard error of minimum. The plotted lambdas showcases that the 1-SE lambda keeps 17 features in the model, while minimal does 20. This does not mean the model will only retain 17 predictors because as we do multinomial regression and estimating coefficent for each class separately, some predictors can be included in one class estimation and not in others.
 
-```{r fig.width=7, fig.height=4}
+```{r}
 set.seed(2026)
 cv_lasso <- cv.glmnet(
   as.matrix(train_data %>% select(all_of(PARTITION_B))),
@@ -2006,7 +2008,7 @@ cv_lasso <- cv.glmnet(
   type.measure = "class"
 )
 plot(cv_lasso)
-title("Lasso — CV misclassification vs. log(lambda)", line = 2.5)
+title("Lasso - CV misclassification vs. log(lambda)", line = 2.5)
 cat("Lasso lambda.min:", cv_lasso$lambda.min, "\n")
 cat("Lasso lambda.1se:", cv_lasso$lambda.1se, "\n")
 coef(cv_lasso)
@@ -2016,7 +2018,7 @@ coef(cv_lasso)
 
 Elastic Net adds an L2 penalty alongside L1. The L2 term encourages correlated features to receive similar (non-zero) coefficients rather than removing one of them.
 
-```{r fig.width=7, fig.height=4}
+```{r}
 set.seed(2026)
 cv_elnet <- cv.glmnet(
   as.matrix(train_data %>% select(all_of(PARTITION_B))),
@@ -2028,12 +2030,12 @@ cv_elnet <- cv.glmnet(
   type.measure = "class"
 )
 plot(cv_elnet)
-title("Elastic Net — CV misclassification vs. log(lambda)", line = 2.5)
+title("Elastic Net - CV misclassification vs. log(lambda)", line = 2.5)
 cat("Elastic Net lambda.min:", cv_elnet$lambda.min, "\n")
 cat("Elastic Net lambda.1se:", cv_elnet$lambda.1se, "\n")
 ```
 
-### Backward stepAIC
+### Backward step
 
 Starting from the full multinomial B model, features are removed one at a time. At each step the feature whose removal most reduces AIC is dropped, continuing until no removal improves AIC. In this case removing any features lead to worse model so all of the predictors are kept.
 
@@ -2045,7 +2047,7 @@ cat("Features retained:", length(attr(terms(multinom_step_B), "term.labels")), "
 ```
 
 ### Feature retention table
-Summary table that showcase all the features and if they were kept accross feature selection methods. In the case of this dataset and predicting AQI, all of the fatures were kept in the models, except in pure Lasso regression, where varaible Weather_Code was removed.
+Summary table that showcase all the features and if they were kept across feature selection methods. In the case of this dataset and predicting AQI, all of the features were kept in the models, except in pure Lasso regression, where variable Weather_Code was removed.
 
 ```{r}
 extract_kept_features <- function(cv_model, s = "lambda.1se") {
@@ -2079,7 +2081,7 @@ print(feature_selection_table, n=22)
 ```
 
 ### Performance comparison
-Comparing performances, we can see that Lasso and Elasticnet methods perform worse on most of the metrics. The stepAIC backward model did keep all of the features, making it identical to the defualt multinomial model.
+Comparing performances, we can see that Lasso and Elasticnet methods perform worse on most of the metrics. The stepAIC backward model did keep all of the features, making it identical to the default multinomial model.
 
 ```{r}
 test_mat <- as.matrix(test_data %>% select(all_of(PARTITION_B)))
@@ -2102,7 +2104,7 @@ feature_selection_metrics
 ```
 
 #### Per-class recall
-The biggest difference is that the penalized models very poorly classified the Good catefory compared to the defualt multinomial model. It performed worst on the Poor category too, the only improvment can be seen in Fair one which does not provide any meaningfull value.
+The biggest difference is that the penalized models very poorly classified the Good category compared to the default multinomial model. It performed worst on the Poor category too, the only improvement can be seen in Fair one which does not provide any meaningful value.
 ```{r}
 feature_selection_recall <- bind_rows(
   compute_class_recall(preds_multinom_B, actual) %>% mutate(Method = "Multinomial B"),
@@ -2129,11 +2131,11 @@ ggplot(aes(x = Label, y = `Recall (%)`, fill = Method)) +
 
 The Lasso method was the only method that removed predictor, in this case it was Weather_Code variable. The one possible reason could be that the variable is already explained by other weather conditions like rain, snowfall or cloud coverage and hence is dropped by Lasso regression. The Elastic Net method kept all the features.
 
-The wrapper method, bacward step selection, did also keep ale the variables, making the model same as the multionmial B model. All of these methods suggest that the picked predictors are usefull and provide new information about AQI.
+The wrapper method, backward step selection, did also keep all the variables, making the model same as the multinomial B model. All of these methods suggest that the picked predictors are useful and provide new information about AQI.
 
-The performance was not increased in any meaningfull way. The step model was in the end same as the base multinomial model and the Lasso and Elastic Net performed worse, mainly on Good class but all the others too, except the Fair class which does not add any meaningfull value.
+The performance was not increased in any meaningful way. The step model was in the end same as the base multinomial model and the Lasso and Elastic Net performed worse, mainly on Good class but all the others too, except the Fair class which does not add any meaningful value.
 
-The feature set should be kept as it is, with all the features present in each model. The preliminary feature seleciton was based on domain knowledge and filter methods like VIF. The embedded and wrapper methods did not showcase and major improvement, just cofirmed that predictor subset was picked correctly and every varaible does provide meaningfull information to the prediction.
+The feature set should be kept as it is, with all the features present in each model. The preliminary feature selection was based on domain knowledge and filter methods like VIF. The embedded and wrapper methods did not showcase any major improvement, just confirmed that predictor subset was picked correctly and every variable does provide meaningful information to the prediction.
 
 ## Scenario 4 - Tree And Heatmap Visualizations (vs. Models)
 
