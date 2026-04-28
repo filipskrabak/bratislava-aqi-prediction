@@ -537,7 +537,7 @@ STL decomposition of AQI:
 ```{r}
 complete_data %>%
   mutate(AQI = na.interp(AQI)) %>%
-  model(STL(AQI ~ season(365*24) + season(7*24) + season(24), robust = TRUE)) %>%
+  model(STL(AQI ~ season("1 year") + season("1 week") + season("1 day"), robust = TRUE)) %>%
   components() %>%
   autoplot(linewidth = 0.001) +
   labs(title = "STL Decomposition of AQI", x = "Time", y = "AQI") + 
@@ -551,7 +551,7 @@ data_season_year <- complete_data %>%
 
 data_season_year_day <- complete_data %>%
   mutate(AQI = na.interp(AQI)) %>%
-  model(STL(AQI ~ trend() + season("1 year") + season("day"), robust = TRUE)) %>%
+  model(STL(AQI ~ trend() + season("1 year") + season("1 day"), robust = TRUE)) %>%
   components()
 
 ```
@@ -559,9 +559,12 @@ data_season_year_day <- complete_data %>%
 
 ```{r}
 monthly_aqi <- complete_data %>%
-  index_by(Month = yearquarter(Start)) %>%
+  mutate(AQI = na.interp(AQI)) %>%
+  index_by(Month = yearmonth(Start)) %>%
   summarise(AQI = mean(AQI))
+```
 
+```{r}
 monthly_aqi %>%
   gg_season(AQI, labels = "right") +
   scale_y_continuous(breaks = 1:4,
@@ -569,7 +572,9 @@ monthly_aqi %>%
                      limits = c(1, 4)) +
   labs(y = "Mean Monthly AQI", x = "Month",
        title = "Seasonal plot - monthly AQI by year (2017-2024)")
+```
 
+```{r}
 monthly_aqi %>%
   gg_subseries(AQI) +
   scale_y_continuous(breaks = 1:4,
@@ -577,13 +582,6 @@ monthly_aqi %>%
                      limits = c(1, 4)) +
   labs(y = "Mean Monthly AQI", x = "Month",
        title = "Seasonal plot - monthly AQI by year (2017-2024)")
-
-complete_data %>%
-  gg_season(PM2.5, labels = "right") +
-  labs(y = "PM2.5", x = element_blank(),
-       title = "Yearly PM2.5 (2017-2024)")
-
-
 ```
 
 The plot shows that AQI is worse around winter months (November to March), spring and autumn months have the best air quality, while summer is somewhere in the middle.
@@ -596,8 +594,6 @@ hourly_aqi <- complete_data %>%
   group_by(Hour) %>%
   summarise(
     Mean  = mean(AQI, na.rm = TRUE),
-    Q25   = quantile(AQI, 0.25, na.rm = TRUE),
-    Q75   = quantile(AQI, 0.75, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -632,18 +628,7 @@ complete_data %>%
   labs(title = "ACF of AQI (2017-2024)", x = "Lag (hours)", y = "ACF")
 ```
 
-The plot shows that AQI lags slowly decay. Spikes at 24 hour cycles confirm this daily cycle. There is also a spike at lag 168 (7 days).
-
-### ACF of AQI noise - 1 year seasonality removed (STL remainder)
-
-```{r}
-data_season_year %>%
-  ACF(remainder, lag_max = 48 * 7) %>%
-  autoplot() +
-  labs(title = "ACF of AQI Noise - 1 year season", x = "Lag (hours)", y = "ACF")
-```
-
-By removing the 1 year seasonality, the long-range slow decay practically disappears, and the 24 hour spikes remain prominent. 
+The plot shows that AQI lags slowly decay. Spikes at 24 hour cycles confirm this daily cycle. There is also a very slight spike at lag 168 (7 days).
 
 ### ACF after removing annual + daily seasonality
 
@@ -654,19 +639,7 @@ data_season_year_day %>%
   labs(title = "ACF of AQI Noise (STL: annual + daily removed)", x = "Lag (hours)", y = "ACF")
 ```
 
-Now that both annual and daily components are removed, the lags decay in a much smoother manner. The lag 1 stays high, but the 24 hour spike is gone compared to previous plots. 
-
-### PACF of AQI
-
-```{r}
-complete_data %>%
-  PACF(AQI, lag_max = 48) %>%
-  autoplot() +
-  labs(title = "PACF of AQI (2017-2024)", x = "Lag (hours)", y = "PACF")
-```
-
-The PACF plot confirms that the lags 1 and 2 are the most important. 
-@TODO: mozno lepsi popis? toto je dobre pre ARIMU, mozno dat uplne prec ak sa nepouzije...
+Now that both annual and daily components are removed, the lags decay in a much smoother manner. The lag 1 stays high, but the 24 hour spike is gone compared to previous plot. 
 
 ### Stationarity tests
 
@@ -674,11 +647,12 @@ We run the KPSS and ADF tests to check whether our series is stationary.
 
 ```{r warning=FALSE}
 tseries::kpss.test(complete_data$AQI)
-#tseries::kpss.test(noise_season_year$remainder)
 tseries::kpss.test(data_season_year_day$remainder)
 ```
 
-The KPSS rejects stationarity (H0: stationary), p value \< 0.01, while the noise after removing yearly and daily seasonality is not rejecting null hypothesis.
+The KPSS rejects stationarity (H0: stationary), p value \< 0.01 for original AQI.
+
+The noise after removing yearly and daily seasonality does not reject null hypothesis.
 
 ```{r warning=FALSE}
 tseries::adf.test(na.omit(complete_data$AQI))
@@ -687,8 +661,7 @@ tseries::adf.test(na.omit(complete_data$AQI))
 ADF rejects the unit root (H0: series has a unit root), p value \< 0.01
 
 This should indicate seasonal non-stationarity (trend-stationarity).
-The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
-Since this time series does not have a unit root, we will not be using differencing as that would likely lead to overdifferencing.
+The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run (AQI is mean-reverting). Current values carry genuine information about future values, which justifies using AQI lags as predictive features.
 
 # Feature Engineering
 
@@ -833,7 +806,7 @@ Pressure is weakly positively correlated with AQI (r = 0.13).
 
 ## Collinearity Analysis (VIF)
 
-Partition B includes all 18 weather features, on top of pollutants (Partition A). Before any model is fitted, we should check whether we have multicollinearity among the predictors (whether two predictors carry almost identical information). This could make our feature importance in RF unreliable, for example.
+Partition B includes all 18 weather features, on top of pollutants (Partition A). Before any model is fitted, we should check whether we have multicollinearity among the predictors (whether two predictors carry almost identical information). This could make our permutation feature importance in RF unreliable, for example.
 
 We opted to use VIF (Variance Inflation Factor), as it can look at multivariate relationships among features, while correlation only looks at pairwise relationships.
 
@@ -880,12 +853,12 @@ corrplot(
 
 From the plot, there are three groups of features that are highly correlated with each other.
 
-Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because snowfalls variance can be explained by combination of other features (temperature, humidity, etc.).
+Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because there is not much snowfall in the area.
 Temperature group - Temperature, Dew_Point, Soil_Temp_0_7, Humidity, and Vapour_Pressure_Def all measure very similar aspects.
 Wind group - Wind_Speed and Wind_Gusts have a strong correlation (r = 0.94).
 
 
-We also remove some features based on domain knowledge.
+We also remove some features based on domain knowledge and previous plot or VIF results.
 
 ```{r}
 # Features removed based on domain knowledge and VIF results
