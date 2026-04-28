@@ -15,20 +15,29 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r libraries}
-library(tidyverse)
-library(arrow)
-library(lubridate)
-library(tsibble)
-library(here) # for handling paths correctly
-library(corrplot)
-library(zoo) # for na.approx
-library(forecast)
-library(generics)
-library(fable)
-library(feasts)
-library(ggtime) ## gg_season
-library(tseries) # for adf.test
-library(MASS, exclude = "select") #ordinal regression polr()
+packages <- c(
+  "conflicted", "tidyverse", "arrow", "lubridate", "tsibble",
+  "here", # for handling paths correctly
+  "corrplot", "zoo", # for na.approx
+  "forecast", "generics", "fable",
+  "feasts", "ggtime", ## gg_season
+  "tseries", # for adf.test
+  "MASS", #ordinal regression polr()
+  "ranger", "pROC",
+  "performance", "brant", "knitr", "scales", "xgboost", "kknn", "vip"
+)
+
+missing_packages <- setdiff(packages, rownames(installed.packages()))
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cran.rstudio.com", dependencies = TRUE)
+}
+
+invisible(lapply(packages, library, character.only = TRUE))
+
+conflict_prefer("filter", "dplyr")
+conflict_prefer("lag", "dplyr")
+conflict_prefer("select", "dplyr")
+
 here::i_am("project.Rmd")
 set.seed(2026) # reproducibility
 ```
@@ -38,9 +47,9 @@ set.seed(2026) # reproducibility
 The main objective of this project is to predict the Air Quality Index (AQI) for Bratislava, Slovakia, using historical air quality and weather data from Mamateyova street.
 This requires us to merge two datasets - the pollutants dataset and the weather dataset. This is a multi-class classification problem, since AQI is categorized into 6 classes, from "Good" to "Extremely poor".
 
-## Project Hypothesis: (concept)
+## Project Hypothesis:
 
-Recent pollutant concentrations and weather conditions in Bratislava are jointly sufficient to predict the AQI 24 hours ahead.
+Current and lagged pollutant concentrations, combined with concurrent weather conditions, carry sufficient information to classify the AQI 24 hours ahead in Bratislava at accuracy meaningfully above a persistence baseline. Weather features provide additional predictive value beyond pollutants alone.
 
 # Pollutants Dataset
 
@@ -74,6 +83,7 @@ summary(filtered_air_data)
 ```
 
 The summary suggests that: - The `Value` column contains some negative values, which are probably sensor errors.
+
 - The `Validity` is either 1 or 2.
 According to data source, both are valid, with 2 being below detection limit.
 We are keeping both.
@@ -167,9 +177,11 @@ The 3 hour gaps should be short enough to not cause significant bias.
 
 ```{r}
 complete_air_data <- clean_air_data %>%
+  # 0 clamp (pollutant concentrations cannot be negative)
+  mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ pmax(., 0, na.rm = FALSE))) %>%
   mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`), ~ 
     zoo::na.approx(., na.rm = FALSE, maxgap = 3)
-    ))
+    )) 
 
 complete_rows <- sum(complete.cases(complete_air_data)) # 60845
 rows <- nrow(complete_air_data) # 70128
@@ -239,7 +251,7 @@ cat("Columns:", ncol(weather_raw), "\n")
 
 The weather dataset has no missing values. It has 31 columns. 
 
-We now try to identify collinearity (or linear relationships) between variables by looking at the correlation heatmap.
+We now look at the correlation heatmap to see correlations between weather features.
 The heatmap is hierarchically clustered, so the most correlated variables are grouped together, which helps us identify clusters of collinear features.
 ```{r}
 cor_matrix <- weather_raw %>%
@@ -270,7 +282,7 @@ cor_matrix %>%
 
 ```
 
-The correlation heatmap confirms that we some variables are extremely highly correlated. Some of there are caused by measuring the same underlying phenomenon, but at different heights (e.g. wind speed at 10m and 100m), or they are calculated from the other columns (e.g. apparent temperature is calculated from temperature, humidity, and wind)
+The correlation heatmap confirms that we some variables are extremely highly correlated. Some of there are caused by measuring the same underlying phenomenon, but at different heights (e.g. wind speed at 10m and 100m), or they are calculated from the other columns (e.g. apparent temperature is calculated from temperature, humidity, and wind). Since these features provide us no additional benefit, we drop them.
 
 ```{r}
 weather_data <- weather_raw %>%
@@ -680,60 +692,6 @@ This should indicate seasonal non-stationarity (trend-stationarity).
 The mean is not constant, due to winter peaks and summer troughs, but there is no drift in the long run.
 Since this time series does not have a unit root, we will not be using differencing as that would likely lead to overdifferencing.
 
-## Predictor Correlations
-
-To see possible multicollinearity and relationships between main predictors, we use the pairs plot.
-A random sample of 3 000 rows is used (due to performance).
-
-```{r}
-# correlation on upper panels
-panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...) {
-  usr <- par("usr"); on.exit(par(usr))
-  par(usr = c(0, 1, 0, 1))
-  r     <- cor(x, y, use = "complete.obs")
-  r_abs <- abs(r)
-  txt   <- format(round(r, digits), nsmall = digits)
-  txt   <- paste0(prefix, txt)
-  if (missing(cex.cor)) cex.cor <- 0.8 / strwidth(txt)
-  col <- if (r >= 0) "firebrick" else "steelblue"
-  text(0.5, 0.5, txt, cex = cex.cor * (0.5 + r_abs) / 1.5, col = col)
-}
-
-# histogram on the diagonal
-panel.hist <- function(x, ...) {
-  usr <- par("usr"); on.exit(par(usr))
-  par(usr = c(usr[1:2], 0, 1.5))
-  h <- hist(x, plot = FALSE)
-  breaks <- h$breaks; nB <- length(breaks)
-  y <- h$counts; y <- y / max(y)
-  rect(breaks[-nB], 0, breaks[-1], y, col = "steelblue", border = "white")
-}
-
-pairs_data <- complete_data %>%
-  as_tibble() %>%
-  rename(PM25 = `PM2.5`) %>% # for clarity
-  select(PM25, PM10, NO2, O3, SO2, AQI,
-         Temperature, Humidity, Wind_Speed, Pressure_MSL) %>%
-  drop_na() %>%
-  slice_sample(n = 3000)
-
-pairs(pairs_data,
-      lower.panel = panel.smooth,
-      upper.panel = panel.cor,
-      diag.panel  = panel.hist,
-      main = "Pred. relationships and correlations (n = 3 000)")
-```
-
-The pairs plot reveals several notable patterns.
-PM2.5 and PM10 are strongly correlated (r = 0.85), which indicates that they largely capture the same signal.
-NO2 is moderately correlated with PM2.5 and PM10 (r = 0.41), as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
-O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10. O3 is also nearly uncorrelated with AQI (r = -0.04) as it is only the main driver in around 11% of hours, and its relationship with AQI isn't linear.
-Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation. The AQI correlation is near zero (r = -0.03).
-Humidity is strongly negatively correlated with O3 (r = -0.73). Dry and sunny conditions drive high ozone. AQI correlation is near zero (r = -0.04).
-Wind speed is negatively correlated with AQI (r = -0.33) and with most pollutants, as higher wind disperses pollution.
-Pressure is weakly positively correlated with AQI (r = 0.13).
-
-
 # Feature Engineering
 
 Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models. We decided the lag variables based on autocorrelation analysis.
@@ -822,6 +780,59 @@ Class 4 (Poor) makes up 6.5% of the training data and 3.3% of the test data.
 All four classes are represented, but Poor is a minority class.
 We report per-class recall in every evaluation to make this limitation transparent.
 
+## Predictor Correlations
+
+To see possible multicollinearity and relationships between main predictors, we use the pairs plot.
+A random sample of 3 000 rows is used (due to performance). We chose a a subset of variables from the dataset, which to our knowledge should be the most important for predicting AQI.
+
+```{r}
+# correlation on upper panels
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...) {
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(0, 1, 0, 1))
+  r     <- cor(x, y, use = "complete.obs")
+  r_abs <- abs(r)
+  txt   <- format(round(r, digits), nsmall = digits)
+  txt   <- paste0(prefix, txt)
+  if (missing(cex.cor)) cex.cor <- 0.8 / strwidth(txt)
+  col <- if (r >= 0) "firebrick" else "steelblue"
+  text(0.5, 0.5, txt, cex = cex.cor * (0.5 + r_abs) / 1.5, col = col)
+}
+
+# histogram on the diagonal
+panel.hist <- function(x, ...) {
+  usr <- par("usr"); on.exit(par(usr))
+  par(usr = c(usr[1:2], 0, 1.5))
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks; nB <- length(breaks)
+  y <- h$counts; y <- y / max(y)
+  rect(breaks[-nB], 0, breaks[-1], y, col = "steelblue", border = "white")
+}
+
+pairs_data <- complete_data %>%
+  as_tibble() %>%
+  rename(PM25 = `PM2.5`) %>% # for clarity
+  select(PM25, PM10, NO2, O3, SO2,
+         Temperature, Humidity, Wind_Speed, Pressure_MSL) %>%
+  drop_na() %>%
+  slice_sample(n = 3000)
+
+pairs(pairs_data,
+      lower.panel = panel.smooth,
+      upper.panel = panel.cor,
+      diag.panel  = panel.hist,
+      main = "Pred. relationships and correlations (n = 3 000)")
+```
+
+The pairs plot reveals several notable patterns.
+PM2.5 and PM10 are strongly correlated (r = 0.85), which indicates that they largely capture the same signal.
+NO2 is moderately correlated with PM2.5 and PM10 (r = 0.41), as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
+O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10. O3 is also nearly uncorrelated with AQI (r = -0.04) as it is only the main driver in around 11% of hours, and its relationship with AQI isn't linear.
+Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation. The AQI correlation is near zero (r = -0.03).
+Humidity is strongly negatively correlated with O3 (r = -0.73). Dry and sunny conditions drive high ozone. AQI correlation is near zero (r = -0.04).
+Wind speed is negatively correlated with AQI (r = -0.33) and with most pollutants, as higher wind disperses pollution.
+Pressure is weakly positively correlated with AQI (r = 0.13).
+
 ## Collinearity Analysis (VIF)
 
 Partition B includes all 18 weather features, on top of pollutants (Partition A). Before any model is fitted, we should check whether we have multicollinearity among the predictors (whether two predictors carry almost identical information). This could make our feature importance in RF unreliable, for example.
@@ -856,27 +867,20 @@ cor_hv <- train_data %>%
   select(all_of(high_vif_features)) %>%
   cor(use = "complete.obs")
 
-cor_hv %>%
-  as.data.frame() %>%
-  rownames_to_column("Var1") %>%
-  pivot_longer(-Var1, names_to = "Var2", values_to = "r") %>%
-  mutate(
-    Var1 = factor(Var1, levels = high_vif_features),
-    Var2 = factor(Var2, levels = rev(high_vif_features))
-  ) %>%
-  ggplot(aes(Var1, Var2, fill = r)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = round(r, 2)), size = 3) +
-  scale_fill_gradient2(low = "#4f7aa7", mid = "white", high = "#dc5355",
-                       midpoint = 0, limits = c(-1, 1)) +
-  labs(
-    title = "Correlation for high VIF features",
-    x = NULL, y = NULL, fill = "r"
-  ) +
-  theme_minimal()
+corrplot(
+  cor_hv,
+  method = "color", type = "upper", order = "original",
+  addCoef.col = "black",
+  number.cex = 0.7,
+  number.digits = 2,
+  tl.cex = 0.75, tl.col = "black",
+  col = colorRampPalette(c("steelblue", "white", "firebrick"))(200),
+  title = "Correlation for high VIF features",
+  mar = c(0, 0, 1.5, 0)
+)
 ```
 
-From the plot, there are three groups of features that are highly correlated with each other clearly visible.
+From the plot, there are three groups of features that are highly correlated with each other.
 
 Precipitation group - Rain and Precipitation are extremely correlated (0.99). Interestingly, snowfall doesn't seem strongly correlated with either of them. This could be because snowfalls variance can be explained by combination of other features (temperature, humidity, etc.).
 Temperature group - Temperature, Dew_Point, Soil_Temp_0_7, Humidity, and Vapour_Pressure_Def all measure very similar aspects.
