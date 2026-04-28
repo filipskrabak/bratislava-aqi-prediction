@@ -37,6 +37,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 conflict_prefer("select", "dplyr")
+conflict_prefer("interval", "tsibble")
 
 here::i_am("project.Rmd")
 set.seed(2026) # reproducibility
@@ -82,14 +83,13 @@ Lets look at numeric ranges and unique values of the columns.
 summary(filtered_air_data)
 ```
 
-The summary suggests that: - The `Value` column contains some negative values, which are probably sensor errors.
+The summary suggests that: 
 
-- The `Validity` is either 1 or 2.
-According to data source, both are valid, with 2 being below detection limit.
-We are keeping both.
+- The `Value` column contains some negative values, which are probably sensor errors.
+- The `Validity` is either 1 or 2. According to data source, both are valid, with 2 being below detection limit. We are keeping both.
 
 Next, we should translate the `Pollutant` codes into human readable names and reshape the data to have columns for each pollutant.
-Finally, we make sure the data is sorted by measurement time and we convert it into a tsibble for time series analysis.
+Finally, we make sure the data is sorted by measurement time and we convert it into a tsibble (time series variant of tibble).
 
 ```{r}
 clean_air_data <- filtered_air_data %>%
@@ -117,9 +117,6 @@ glimpse(clean_air_data)
 Now we have a cleaned dataset with 5 pollutants.
 Lets check whether our time series has any gaps.
 Our data is hourly.
-
-Lets check gaps in our timeseries whether there are any missing hours.
-For now, we will
 
 ```{r}
 gaps <- clean_air_data %>%
@@ -242,12 +239,12 @@ weather_raw <- read_csv(weather_file_path, skip = 3) %>%
 glimpse(weather_raw)
 ```
 
+## Data Cleaning
+
 ```{r}
 cat("Rows:", nrow(weather_raw), "| Missing:", sum(!complete.cases(weather_raw)), "\n")
 cat("Columns:", ncol(weather_raw), "\n")
 ```
-
-## Data Cleaning
 
 The weather dataset has no missing values. It has 31 columns. 
 
@@ -400,11 +397,11 @@ complete_data_six %>%
 Air quality in Bratislava is mostly Fair and Moderate (~89%). Good air quality happens in 5.2% of hours. Poor (original EEA classes 4-6, including Very poor and Extremely poor) accounts for 5.7% of hours.
 
 The dataset is imbalanced due to Bratislava having Fair and Moderate air quality most of the time. The Poor class accounts for only 5.7% of the data, yet it is a critical class to be able to predict.
-We don't consider this as a problem by itself, as the data reflects the real world distribution of AQI levels, and there are techniques 
+We don't consider this as a problem by itself, as the data distribution reflects the reality of Bratislava's AQI levels, and there are techniques to handle this imbalance.
 
 ## Merging Rare AQI Classes
 
-Since Very poor (0.3%) and Extremely poor (0.1%) are extremely rare in the dataset, and health warning for general population is issued by Poor level, we merge classes 4 (Poor), 5 (Very poor), and 6 (Extremely poor) into a single "Poor" class. This reduces the problem from 6 to 4 classes: Good, Fair, Moderate, Poor.
+Since Very poor (0.3%) and Extremely poor (0.1%) make a small portion of the dataset, and health warning for general population is issued by Poor level, we merge classes 4 (Poor), 5 (Very poor), and 6 (Extremely poor) into a single "Poor" class. This reduces the problem from 6 to 4 classes: Good, Fair, Moderate, Poor.
 
 ```{r}
 # Redefine aqi_levels and aqi_colors for the 4 classes
@@ -460,7 +457,7 @@ aqi_drivers %>%
   rename(Pollutant = driver, Hours = n)
 ```
 
-From the table, we can see that PM2.5 influences the AQI the most, in **20.3%** of cases. The second most influencing pollutant, NO2 (18.2%), is caused by traffic emissions, and the third one, O3 (11.3%), peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight. 
+From the table, we can see that PM2.5 influences the AQI the most, in **20.3%** of cases (caused mainly by heating emissions). The second most influencing pollutant, NO2 (18.2%), is caused by traffic emissions, and the third one, O3 (11.3%), peaks in summer months, as it is formed by photochemical reactions in the presence of sunlight. PM10, which includes dust and coarse particles, is the main driver in 0.4% of hours, and SO2, which is emitted by industries, is the main driver in 0.1% of hours. In 49.7% of hours, there is a tie between multiple pollutants, or the AQI is missing.
 
 ```{r}
 aqi_drivers %>%
@@ -531,7 +528,7 @@ complete_data %>%
   theme(legend.position = "none", axis.text.x = element_blank())
 ```
 
-The plots show that NO2 and PM2.5 have the most frequent outlier hours. SO2, on the other hands, shows the most extreme outliers. As those readings are real world, validated sensor measurements, not errors, they are kept in the dataset, as they represent the most critical air quality events, which are important to predict.
+Those readings are real world, validated sensor measurements, not errors. They are kept in the dataset, as they represent the most critical air quality events, which are important to capture.
 
 ## Decomposition and seasonality
 
