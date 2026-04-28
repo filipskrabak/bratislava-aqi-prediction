@@ -307,6 +307,7 @@ has_gaps(merged_data)
 
 After the redundant variables are removed, we retain 24 features in total.
 The merge has not changed the row count, and our time series has no gaps.
+Both datasets have been successfully merged on the `Start` timestamp, and they have been aligned correctly (no time zone conversion is necessary).
 
 # AQI Calculation
 
