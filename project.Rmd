@@ -961,7 +961,6 @@ compute_metrics <- function(preds, actual) {
     `+-1 Class Acc (%)` = round(100 * mean(abs(preds - actual) <= 1), 2),
     `Macro F1` = macro_f1(preds, actual),
     `Poor Recall (%)` = round(100 * mean(preds[actual == 4] == 4), 2),
-    `Poor Specificity (%)` = round(100 * mean(preds[actual != 4] != 4), 2)
   )
 }
 
@@ -1102,13 +1101,6 @@ class_recall_rf <- function(model, test_data, partition) {
   compute_class_recall(p$preds, p$actual)
 }
 
-# bar chart of permutation importance scores
-plot_importance <- function(model, title = "RF Permutation Importance") {
-  vip(model, num_features = 23, geom = "col") +
-    labs(title = title) +
-    theme_minimal()
-}
-
 # Runs grid search over mtry and min_node_size for a partition
 # Returns a tibble with train_f1, val_f1, val_acc and overfitting gap
 run_rf_grid <- function(partition) {
@@ -1216,14 +1208,6 @@ cat("--- Partition A ---\n")
 class_recall_rf(rf_A, test_data, PARTITION_A) %>% print()
 cat("\n--- Partition B ---\n")
 class_recall_rf(rf_B, test_data, PARTITION_B) %>% print()
-```
-
-```{r}
-plot_importance(rf_A, "RF Permutation Importance (Partition A)")
-```
-
-```{r}
-plot_importance(rf_B, "RF Permutation Importance (Partition B)")
 ```
 
 #### Confusion matrix
@@ -1510,9 +1494,7 @@ p_xgb <- predict_xgb(xgb_B, dtest_B, test_data)
 plot_confusion_matrix(p_xgb$actual, p_xgb$preds, "Confusion Matrix: XGBoost Partition B")
 ```
 
-#### Feature importance
-
-```{r}
+```{r xgb-importance, cache=TRUE}
 xgb_pred_wrapper <- function(object, newdata) {
   dm <- xgb.DMatrix(as.matrix(newdata))
   preds <- as.integer(predict(object, dm)) + 1L
@@ -1530,19 +1512,7 @@ xgb_imp_perm_B <- vi(
   pred_wrapper = xgb_pred_wrapper,
   nsim = 5
 )
-
-vip(xgb_imp_perm_B, num_features = 30, geom = "col") +
-  labs(
-    title = "Permutation-based Variable Importance",
-    subtitle = "Accuracy metric, 5 permutations"
-  ) +
-  theme_minimal()
-
-print(xgb_imp_perm_B, n = 30)
 ```
-
-`Pressure_MSL` is the most dominant feature, nearly 2x the next-ranked feature. High pressure traps pollutants, while low pressure disperses them. `O3` and `PM25` are the next top features.
-`Snowfall` has slightly negative importance, meaning shuffling it marginally improves accuracy.
 
 ### k-Nearest Neighbours (kNN)
 
@@ -1951,7 +1921,6 @@ The results are somewhat mixed. For some predictors, the assumptions holds, but 
 ## Models Evaluation Summary
 
 ```{r}
-# Collect test-set metrics for every fitted model into one tibble
 summary_table <- bind_rows(
   eval_rf(rf_A, test_data, PARTITION_A)            %>% mutate(Method = "Random Forest",      Type = "Non-parametric", Partition = "A"),
   eval_rf(rf_B, test_data, PARTITION_B)            %>% mutate(Method = "Random Forest",      Type = "Non-parametric", Partition = "B"),
@@ -1971,17 +1940,162 @@ summary_table <- bind_rows(
 summary_table
 ```
 
+### Model performance (Macro F1 plots)
+
+```{r}
+method_order <- summary_table %>%
+  group_by(Method) %>%
+  summarise(best_f1 = max(`Macro F1`)) %>%
+  arrange(best_f1) %>%
+  pull(Method)
+ 
+summary_table %>%
+  mutate(Method = factor(Method, levels = method_order)) %>%
+  ggplot(aes(x = Method, y = `Macro F1`, fill = Partition)) +
+  geom_col(position = position_dodge(0.7), width = 0.6) +
+  geom_text(aes(label = sprintf("%.3f", `Macro F1`)),
+            position = position_dodge(0.7), vjust = -0.4, size = 2.8) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_y_continuous(limits = c(0, 0.56), expand = c(0, 0)) +
+  facet_wrap(~ Type, scales = "free_x") +
+  labs(title = "Macro F1 Score by Model and Feature Partition",
+       subtitle = "Partition A = pollutants only | Partition B = pollutants + weather",
+       y = "Macro F1", fill = "Partition") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Partition B (pollutants + weather) consistently outperforms Partition A (pollutants only) across every model. This confirms that weather features carry additional predictive signal beyond pollutant lags. Among non-parametric models, XGBoost achieves the highest Macro F1. Among parametric models, Multinomial Regression B performs the best.
+
+### Per-class Recall Heatmap
+```{r fig.height=7}
+recall_long <- bind_rows(
+  class_recall_rf(rf_A, test_data, PARTITION_A)                %>% mutate(Method = "Random Forest",    Type = "Non-parametric", Partition = "A"),
+  class_recall_rf(rf_B, test_data, PARTITION_B)                %>% mutate(Method = "Random Forest",    Type = "Non-parametric", Partition = "B"),
+  class_recall_xgb(xgb_A, dtest_A, test_data)                 %>% mutate(Method = "XGBoost",          Type = "Non-parametric", Partition = "A"),
+  class_recall_xgb(xgb_B, dtest_B, test_data)                 %>% mutate(Method = "XGBoost",          Type = "Non-parametric", Partition = "B"),
+  class_recall_knn(knn_A, test_data)                           %>% mutate(Method = "kNN",              Type = "Non-parametric", Partition = "A"),
+  class_recall_knn(knn_B, test_data)                           %>% mutate(Method = "kNN",              Type = "Non-parametric", Partition = "B"),
+  class_recall_ordinal(ordinal_A, test_data, PARTITION_A)      %>% mutate(Method = "Ordinal Reg.",     Type = "Parametric",     Partition = "A"),
+  class_recall_ordinal(ordinal_B, test_data, PARTITION_B)      %>% mutate(Method = "Ordinal Reg.",     Type = "Parametric",     Partition = "B"),
+  class_recall_partial(partial_A, test_data, PARTITION_A)      %>% mutate(Method = "Partial PPO",      Type = "Parametric",     Partition = "A"),
+  class_recall_multinom(multinomial_A, test_data, PARTITION_A) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",     Partition = "A"),
+  class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",     Partition = "B")
+) %>%
+  mutate(
+    Model = paste0(Method, " (", Partition, ")"),
+    AQI_Class = factor(Label, levels = aqi_levels)
+  )
+
+model_order <- recall_long %>%
+  filter(Label == "Poor") %>%
+  arrange(Type, desc(`Recall (%)`)) %>%
+  pull(Model)
+
+recall_long %>%
+  mutate(Model = factor(Model, levels = rev(model_order))) %>%
+  ggplot(aes(x = AQI_Class, y = Model, fill = `Recall (%)`)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = paste0(`Recall (%)`, "%")), size = 3) +
+  scale_fill_distiller(palette = "RdYlGn", direction = 1, limits = c(0, 100)) +
+  facet_wrap(~ Type, scales = "free_y", ncol = 1) +
+  labs(title = "Per-class Recall by Model",
+       x = "AQI Class", y = NULL, fill = "Recall (%)") +
+  theme_minimal()
+```
+
+The heatmap reveals a split between non-parametric and parametric.  Non-parametric models (RF, XGBoost) maintain relatively balanced recall thanks to the class weighting approach. 
+
+Parametric models have a worse poor recall than non-parametric models. They use less agressive class weighting to optimize their Macro F1 scores, but that comes at a cost.
+
+@TODO: rozdiel parametric vs non parametric
+
+### Feature Importance: RF vs XGBoost
+
+```{r fig.height=8}
+library(patchwork)
+
+p_rf  <- vip(rf_B, num_features = 22, geom = "col") +
+  labs(title = "Random Forest B") +
+  theme_minimal(base_size = 10)
+
+p_xgb <- vip(xgb_imp_perm_B, num_features = 22, geom = "col") +
+  labs(title = "XGBoost B") +
+  theme_minimal(base_size = 10)
+
+p_rf + p_xgb +
+  plot_annotation(
+    title    = "Permutation Feature Importance (Partition B)",
+    subtitle = "Accuracy metric, 5 permutations"
+  )
+```
+
+Both models agree that the top two predictors are `Pressure_MSL` and `PM25`. Pressure is by far the most important predictor in XGBoost, and also the most important in RF. 
+
+On the other hand, Snowfall seems to not be important at all for both models (near zero importance). The rest of the features are shown on the plots.
+
+### Poor Class Precision-Recall
+
+We use Precision-Recall (PR) curves to evaluate the ability of models to detect the Poor class.
+
+```{r}
+library(PRROC)
+
+actual_poor <- as.integer(test_data$AQI_p24) == 4
+
+xgb_margins <- predict(xgb_B, dtest_B, outputmargin = TRUE, strict_shape = TRUE)
+xgb_exp <- exp(xgb_margins)
+xgb_prob_B <- xgb_exp / rowSums(xgb_exp)
+
+pr_models <- list(
+  "RF B" = PRROC::pr.curve(scores.class0 = predict(rf_B_prob, data = test_data)$predictions[, 4], weights.class0 = actual_poor, curve = TRUE),
+  "XGBoost B" = PRROC::pr.curve(scores.class0 = xgb_prob_B[, 4], weights.class0 = actual_poor, curve = TRUE),
+  "Multinomial Reg. B" = PRROC::pr.curve(scores.class0 = predictvglm(multinomial_B, newdata = test_data %>% select(all_of(PARTITION_B)), type = "response")[, 4], weights.class0 = actual_poor, curve = TRUE),
+  "Partial PPO A" = PRROC::pr.curve(scores.class0 = predictvglm(partial_A, newdata = test_data %>% select(all_of(PARTITION_A)), type = "response")[, 4], weights.class0 = actual_poor, curve = TRUE),
+  "Ordinal Reg. B" = PRROC::pr.curve(scores.class0 = predict(ordinal_B, newdata = test_data %>% select(all_of(PARTITION_B)), type = "probs")[, "4"], weights.class0 = actual_poor, curve = TRUE),
+  "kNN B" = PRROC::pr.curve(scores.class0 = knn_B$prob[, 4], weights.class0 = actual_poor, curve = TRUE)
+)
+
+prevalence <- mean(actual_poor)
+
+pr_df <- pr_models %>%
+  enframe(name = "name", value = "pr") %>%
+  mutate(
+    curve = map(pr, ~ as.data.frame(.x$curve) %>% setNames(c("recall", "precision", "threshold"))),
+    auc = map_dbl(pr, ~ .x$auc.integral)
+  ) %>%
+  unnest(curve) %>%
+  mutate(model = paste0(name, "  (AUC=", round(auc, 3), ")"))
+
+ggplot(pr_df, aes(x = recall, y = precision, color = model)) +
+  geom_line(linewidth = 0.9) +
+  geom_hline(yintercept = prevalence, linetype = "dashed", color = "grey60") +
+  annotate("text", x = 0.75, y = prevalence + 0.03,
+           label = paste0("Random baseline (", round(prevalence * 100, 1), "%)"),
+           size = 3, color = "grey50") +
+  scale_color_brewer(palette = "Dark2") +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "One-vs-Rest Precision-Recall (Poor AQI Class)",
+    x = "Recall", y = "Precision", color = "Model (PR-AUC)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+RF and XGBoost are the strongest predictors for the Poor class, substantially above the random baseline. Parametric models are noticeably behind the non-parametric models, except for KNN which is essentially at the random baseline, and not useful for detecting the Poor class at all.
+
 **Scenario 1 - Models across 2 feature space partitions**
-Across all three models families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice. 
+Across all three model families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice.
 
-@TODO: add feature importance plots, compare them
-
-
+@TODO: dopisat podla zadania - prepisat text
 `Features that matter in both families (e.g. `Pressure_MSL`, lagged AQI, `O3`) are therefore the most robust candidate features for this task. Non-parametric models expose this through permutation importance; parametric models through coefficient size and significance, offering complementary angles on explainability.`
 
 **Scenario 2 - Parametric vs. Non-parametric models**
-@TODO: dopisat
-`Non-parametric methods (RF, XGBoost) achieve the highest Macro F1 scores because they capture non-linear interactions (e.g. the non-monotone O3-AQI relationship shown in the EDA) without any distributional assumption. Parametric methods (Ordinal Regression, Partial PPO, Multinomial Regression) score lower on F1 but offer stronger explainability. Coefficients have a direct probabilistic interpretation, standard errors and p-values are available, and the Brant test makes the proportional-odds assumption auditable. They are also fully reproducible, as the same data always produce the same model, with no randomness from tree bootstrapping or gradient steps. For a regulatory or public-health context where decisions must be justified, parametric models are preferable; for raw predictive power, non-parametric ensemble methods win.`
+
+@TODO: dopisat podla zadania - prepisat text
+`Non-parametric methods (RF, XGBoost) achieve the highest Macro F1 scores because they capture non-linear interactions (e.g. the non-monotone O3-AQI relationship shown in the EDA) without any distributional assumption. Parametric methods (Ordinal Regression, Partial PPO, Multinomial Regression) score lower on F1 but offer stronger explainability: coefficients have a direct probabilistic interpretation, standard errors and p-values are available, and the Brant test makes the proportional-odds assumption auditable. They are also fully reproducible, as the same data always produce the same model, with no randomness from tree bootstrapping or gradient steps. For a regulatory or public-health context where decisions must be justified, parametric models are preferable; for raw predictive power, non-parametric ensemble methods win.`
 
 ## Scenario 3 - Feature Selection: Wrapper vs. Embedded
 
@@ -2170,13 +2284,9 @@ preds_rf_B <- preds_B$preds
 actual_int  <- preds_B$actual
 ```
 
-Why these values?
-
-- `maxdepth = 5` balances readability against complexity;
-  the depth sweep below shows the tree plateaus at depth 8 anyway.
-- `cp = 0.001` is deliberately small — we want the tree to grow as far as it profitably can,
-  so we can see where it naturally stops.
-- `minsplit = 20, minbucket = 7` prevent overfitting to tiny node populations.
+- `maxdepth = 5` - more is not very readable
+- `cp = 0.001` - the tree should grow as long as it can
+- `minsplit = 20, minbucket = 7` - prevent overfitting
 
 ```{r}
 tree_B <- rpart(
@@ -2185,8 +2295,8 @@ tree_B <- rpart(
   method  = "class",
   control = rpart.control(
     maxdepth  = TREE_MAXDEPTH,
-    cp        = TREE_CP,
-    minsplit  = TREE_MINSPLIT,
+    cp = TREE_CP,
+    minsplit = TREE_MINSPLIT,
     minbucket = TREE_MINBUCKET
   )
 )
@@ -2196,14 +2306,13 @@ preds_tree_B <- as.integer(predict(tree_B, newdata = test_data %>% select(all_of
 
 #### Complexity table
 
-The table shows the cross-validation estimates of misclassification error (`xerror`) at each split. We try to find the optimal tree by looking for the point where `xerror` stops decreasing (beyond that, generalisation does not improve).
+The table shows the cross-validation estimates of misclassification error (xerror) at each split. We try to find the optimal tree by looking for the point where xerror stops decreasing (beyond that, generalisation does not improve).
 
 ```{r}
 printcp(tree_B)
 ```
 
-The `xerror` stops decreasing at around 13 splits, tells us that a single tree on this
-problem exhausts its useful complexity at that number of leaves. More splits would likely only lead to overfitting.
+The `xerror` stops decreasing at around 13 splits, tells us that a single tree on this problem exhausts its useful complexity at that number of leaves. More splits would likely only lead to overfitting.
 
 #### Which features does the tree use?
 
@@ -2212,8 +2321,8 @@ vars_used <- unique(tree_B$frame$var[tree_B$frame$var != "<leaf>"])
 vars_not_used <- setdiff(PARTITION_B, vars_used)
 
 tibble(
-  Status   = c(rep("Used", length(vars_used)), rep("Not used", length(vars_not_used))),
-  Feature  = c(vars_used, vars_not_used)
+  Status = c(rep("Used", length(vars_used)), rep("Not used", length(vars_not_used))),
+  Feature = c(vars_used, vars_not_used)
 ) %>% print(n = Inf)
 ```
 
@@ -2316,7 +2425,7 @@ tibble(
 ) %>% print()
 ```
 
-Currently, the tree we tested predicts *Fair* and *Moderate* most of the time, and never predicts *Good* and only rarely predicts *Poor* (205 times), even though those classes together make up around 2000 rows in the test set. We can address this by setting class priors to be uniform at the cost of overall accuracy.
+Currently, the tree we tested predicts *Fair* and *Moderate* most of the time, and never predicts *Good* and only rarely predicts *Poor*, even though those classes together make up around 2000 rows in the test set. We can address this by setting class priors to be uniform at the cost of overall accuracy.
 
 #### Balanced tree
 
@@ -2358,7 +2467,7 @@ With the class weights, the first split still falls on `AQI_t`, with the treshol
 On the right branch of the root, the tree first splits on `AQI_t` again, with a threshold of 4. If it is above or equal to 4, it always predicts *Poor* with 77% confidence, while if it is below 4, it splits on `O3` - if `O3` is below 100 µg/m³, it decides based on pressure, dew point and PM25. If `O3` is above 100 µg/m³, it predicts *Poor* with 60% confidence.
 
 ```{r}
-tibble(
+recall_comparison <- tibble(
   Class = 1:4,
   Label = aqi_levels,
   Actual_n = as.integer(table(actual_int))
@@ -2370,7 +2479,9 @@ tibble(
       round(100 * sum(preds_tree_bal == k & actual_int == k) / sum(actual_int == k), 1)),
     RF_weighted = sapply(Class, function(k)
       round(100 * sum(preds_rf_B == k & actual_int == k) / sum(actual_int == k), 1))
-  ) %>% print()
+  )
+
+recall_comparison %>% print()
 
 
 tibble(
@@ -2419,19 +2530,13 @@ recall_comparison %>%
 
 **Summary and evaluation**
 
-| Model | Good recall | Poor recall | Overall acc | Macro F1 | Interpretability |
-|---|---|---|---|---|---|
-| Tree (unweighted) | 0% | 1.6% | 59.4% | 0.313 | 14 leaves, 8 features |
-| Tree (balanced) | 75.7% | 59.5% | 36.4% | 0.339 | more leaves, same features |
-| RF (weighted) | 23.2% | 53.3% | 58.7% | **0.464** | 500 trees, black-box |
-
 - The unweighted tree is the most interpretable, but ignores the minority classes completely. It is useful for describing the majority patterns in the training data, but would fail badly in an early-warning use-case where catching *Poor* air quality is critical. 
 
 - The balanced tree recovers minority-class recall dramatically (Good: 0%->76%, Poor: 2%->60%) at the cost of heavy over-prediction of those classes (predicts Good 6742 times vs. 1402 actual).
 
-- The weighted RF achieves the best *macro F1* (0.464) by combining 500 trees with inverse-frequency weights, recovering minority-class recall without totally sacrificing majority-class precision.
+- The weighted RF achieves the best macro F1 (0.464) by combining 500 trees with inverse-frequency weights, recovering minority-class recall without totally sacrificing majority-class precision.
 
-A single tree of any depth agrees with the RF on at most ~78% of test cases.  The remaining 22% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
+A single tree of any depth agrees with the RF on at most ~78% of test cases. The remaining 22% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
 
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
