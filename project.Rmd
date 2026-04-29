@@ -2539,6 +2539,27 @@ recall_comparison %>%
 
 A single tree of any depth agrees with the RF on at most ~78% of test cases. The remaining 22% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
 
+# Conclusion
+
+```{r}
+persistence_preds <- as.integer(test_data$AQI_t)
+persistence_actual <- as.integer(test_data$AQI_p24)
+
+tibble(
+  Metric = c("Macro F1", "Poor Recall (%)"),
+  Value  = c(
+    round(macro_f1(persistence_preds, persistence_actual), 3),
+    round(100 * sum(persistence_preds == 4 & persistence_actual == 4) / sum(persistence_actual == 4), 1)
+  )
+) %>% print()
+```
+
+The hypothesis is broadly confirmed. The persistence baseline (predict tomorrow = today) achieves Macro F1 = 0.433 with near-zero Poor recall. Classes are imbalanced enough that a naive lag strategy almost never identifies Poor days. All of the models except kNN exceed this baseline (for partition B), with XGBoost B reaching Macro F1 = 0.483. Class weighting substantially recovers Poor-class recall.
+
+The second part of the hypothesis, that weather features add value beyond pollutants alone, is supported. Every model improves from Partition A (pollutants only) to Partition B (pollutants + weather), with consistent Macro F1 gains of +0.03-0.04. `Pressure_MSL` ranks as the single most important feature in both RF and XGBoost, which supports the theory that atmospheric pressure is the dominant meteorological driver of next-day AQI in Bratislava.
+
+Among parametric models, Multinomial Regression B competes closely with ensemble methods. The proportional odds assumption is violated for most predictors, which limits the ordinal model and makes flexible non-parametric approaches a better structural fit for this dataset.
+
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
 - [2] [European Air Quality Index](https://www.eea.europa.eu/en/analysis/maps-and-charts/index)
