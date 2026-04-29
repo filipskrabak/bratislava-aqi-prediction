@@ -27,6 +27,8 @@ library(PRROC)
 library(patchwork)
 library(scales)
 library(car)      # poTest (via performance/brant)
+library(fable)
+library(feasts)
 
 conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
@@ -522,22 +524,32 @@ ui <- page_navbar(
 
   #  Tab 1: Data Overview 
   nav_panel("Data Overview",
-    layout_columns(
-      col_widths = c(12),
-      card(
-        card_header("AQI Time Series (2017–2024)"),
-        plotOutput("plot_ts", height = "280px")
+    navset_card_tab(
+      nav_panel("Overview",
+        layout_columns(
+          col_widths = c(12),
+          card(
+            card_header("Weekly Average AQI (2017–2024)"),
+            plotOutput("plot_ts", height = "280px")
+          )
+        ),
+        layout_columns(
+          col_widths = c(4, 4, 4),
+          card(card_header("Class Distribution"),  plotOutput("plot_dist",    height = "260px")),
+          card(card_header("Monthly AQI by Year (Seasonal)"), plotOutput("plot_heatmap", height = "260px")),
+          card(card_header("AQI Drivers by Class"), plotOutput("plot_corr", height = "340px"))
+        ),
+        card(
+          card_header("Pollutant Distributions by AQI Class"),
+          plotOutput("plot_boxplots", height = "320px")
+        )
+      ),
+      nav_panel("STL Decomposition",
+        card(
+          card_header("STL Decomposition of AQI (annual + weekly + daily seasonality)"),
+          plotOutput("plot_stl", height = "680px")
+        )
       )
-    ),
-    layout_columns(
-      col_widths = c(4, 4, 4),
-      card(card_header("Class Distribution"),  plotOutput("plot_dist",    height = "260px")),
-      card(card_header("Monthly AQI Heatmap"), plotOutput("plot_heatmap", height = "260px")),
-      card(card_header("AQI Drivers by Class"), plotOutput("plot_corr", height = "340px"))
-    ),
-    card(
-      card_header("Pollutant Distributions by AQI Class"),
-      plotOutput("plot_boxplots", height = "320px")
     )
   ),
 
@@ -1254,18 +1266,32 @@ server <- function(input, output, session) {
 
   #  Tab 1: EDA plots 
   output$plot_ts <- renderPlot({
-    model_features %>%
-      filter(!is.na(AQI_p24)) %>%
-      mutate(date = as.Date(Start)) %>%
-      group_by(date) %>%
-      summarise(AQI_mean = mean(AQI_t, na.rm = TRUE), .groups = "drop") %>%
-      ggplot(aes(date, AQI_mean)) +
+    complete_data %>%
+      as_tibble() %>%
+      mutate(Week = floor_date(Start, "week")) %>%
+      group_by(Week) %>%
+      summarise(AQI = mean(AQI, na.rm = TRUE), .groups = "drop") %>%
+      ggplot(aes(Week, AQI)) +
       geom_line(color = "steelblue", linewidth = 0.4, alpha = 0.6) +
-      geom_smooth(method = "loess", span = 0.05, se = FALSE, color = "#e74c3c", linewidth = 1) +
-      scale_y_continuous(breaks = 1:4, labels = aqi_levels) +
-      labs(title = "Daily mean AQI - Bratislava (SK0001A)",
-           x = NULL, y = "AQI Class") +
+      geom_smooth(method = "loess", span = 0.1, se = FALSE, color = "firebrick", linewidth = 1) +
+      scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
+      scale_y_continuous(breaks = 1:4, labels = aqi_levels, limits = c(1, 4)) +
+      labs(title = "Weekly average AQI (2017-2024)",
+           subtitle = "Red line = LOESS trend",
+           x = NULL, y = "AQI level") +
       theme_minimal(base_size = 12)
+  })
+
+  output$plot_stl <- renderPlot({
+    complete_data %>%
+      as_tsibble(index = Start) %>%
+      mutate(AQI = zoo::na.approx(AQI, na.rm = FALSE)) %>%
+      model(STL(AQI ~ season("1 year") + season("1 week") + season("1 day"), robust = TRUE)) %>%
+      components() %>%
+      autoplot(linewidth = 0.4) +
+      labs(title = "STL Decomposition of AQI (2017\u20132024)", x = NULL) +
+      theme_minimal(base_size = 12) +
+      theme(panel.grid.major = element_line(colour = "grey85"))
   })
 
   output$plot_dist <- renderPlot({
@@ -1282,16 +1308,16 @@ server <- function(input, output, session) {
   })
 
   output$plot_heatmap <- renderPlot({
-    model_features %>%
-      mutate(year = year(Start)) %>%
-      group_by(year, month) %>%
-      summarise(AQI_mean = mean(AQI_t, na.rm = TRUE), .groups = "drop") %>%
-      ggplot(aes(factor(month, labels = month.abb), factor(year), fill = AQI_mean)) +
-      geom_tile(color = "white", linewidth = 0.4) +
-      scale_fill_gradientn(colors = c("#50f0e6","#50ccaa","#f0e641","#ff5050"),
-                           limits = c(1, 4), name = "AQI") +
-      labs(x = NULL, y = NULL) +
-      theme_minimal()
+    complete_data %>%
+      as_tsibble(index = Start) %>%
+      mutate(AQI = zoo::na.approx(AQI, na.rm = FALSE)) %>%
+      index_by(Month = yearmonth(Start)) %>%
+      summarise(AQI = mean(AQI, na.rm = TRUE), .groups = "drop") %>%
+      gg_subseries(AQI) +
+      scale_y_continuous(breaks = 1:4, labels = aqi_levels, limits = c(1, 4)) +
+      labs(y = "Mean Monthly AQI", x = "Month",
+           title = "Seasonal plot — monthly AQI by year (2017–2024)") +
+      theme_minimal(base_size = 12)
   })
 
   output$plot_corr <- renderPlot({
