@@ -745,10 +745,10 @@ ui <- page_navbar(
         actionButton("btn_predict", "Predict", class = "btn-primary w-100")
       ),
       card(
-        card_header("Model Predictions (Partition A)"),
+        card_header("XGBoost Prediction (Partition A)"),
         tableOutput("tbl_predictions"),
         br(),
-        p(em("All 6 models predict next-24h AQI using Partition A features (pollutants + time)."),
+        p(em("XGBoost A predicts next-24h AQI using pollutant + time features. Train XGBoost first."),
           style = "color:#888; font-size:0.85em;")
       )
     )
@@ -1599,8 +1599,7 @@ server <- function(input, output, session) {
   #  Tab 5: Prediction Lookup 
   prediction_results <- eventReactive(input$btn_predict, {
     m <- rv_models()
-    req(!is.null(m$rf_A), !is.null(m$xgb_A),
-        !is.null(m$ordinal_A), !is.null(m$partial_A), !is.null(m$multinomial_A))
+    req(!is.null(m$xgb_A))
 
     new_obs <- tibble(
       AQI_t   = input$inp_aqit,
@@ -1613,29 +1612,15 @@ server <- function(input, output, session) {
       O3      = input$inp_o3,
       SO2     = input$inp_so2,
       hour    = input$inp_hour,
-      month   = input$inp_month,
-      AQI_p24 = factor(NA_integer_, levels = 1:4, ordered = TRUE)
+      month   = input$inp_month
     )
 
-    rf_pred      <- as.integer(predict(m$rf_A, data = new_obs %>% select(all_of(PARTITION_A)))$predictions)
-    xgb_dm       <- xgb.DMatrix(as.matrix(new_obs %>% select(all_of(PARTITION_A))))
-    xgb_pred     <- as.integer(predict(m$xgb_A, xgb_dm)) + 1L
-    knn_fit_new  <- kknn(AQI_p24 ~ .,
-                         train = train_data %>% select(all_of(c(PARTITION_A, "AQI_p24"))),
-                         test  = new_obs    %>% select(all_of(c(PARTITION_A, "AQI_p24"))),
-                         k = KNN_K_A, distance = KNN_DISTANCE, kernel = KNN_KERNEL_A, scale = TRUE)
-    knn_pred     <- as.integer(fitted(knn_fit_new))
-    ord_pred     <- as.integer(as.character(predict(m$ordinal_A, newdata = new_obs %>% select(all_of(PARTITION_A)))))
-    par_probs    <- predictvglm(m$partial_A,     newdata = new_obs %>% select(all_of(PARTITION_A)), type = "response")
-    par_pred     <- max.col(par_probs)
-    mul_probs    <- predictvglm(m$multinomial_A, newdata = new_obs %>% select(all_of(PARTITION_A)), type = "response")
-    mul_pred     <- max.col(mul_probs)
+    xgb_dm   <- xgb.DMatrix(as.matrix(new_obs %>% select(all_of(PARTITION_A))))
+    xgb_pred <- as.integer(predict(m$xgb_A, xgb_dm)) + 1L
 
     tibble(
-      Model              = c("Random Forest", "XGBoost", "kNN",
-                             "Ordinal Reg.", "Partial PO", "Multinomial Reg."),
-      `Prediction (int)` = c(rf_pred, xgb_pred, knn_pred, ord_pred, par_pred, mul_pred),
-      `AQI Class`        = aqi_levels[c(rf_pred, xgb_pred, knn_pred, ord_pred, par_pred, mul_pred)]
+      `Predicted AQI (int)` = xgb_pred,
+      `AQI Class`           = aqi_levels[xgb_pred]
     )
   })
 
