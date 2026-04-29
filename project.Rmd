@@ -1684,7 +1684,7 @@ cat("\n=== Partition B - odds ratio ===\n"); print(exp(ordinal_B$coefficients))
 
 #### Performance evaluation
 
-The overall perfomrance and class recall metrics. Model B is better looking at the macro F1 score, even though it has lower recall for poor class.
+The overall performance and class recall metrics. Model B is better looking at the macro F1 score, even though it has lower recall for poor class.
 ```{r}
 
 predict_ordinal <- function(model, test_data, partition) {
@@ -1930,14 +1930,15 @@ summary_table <- bind_rows(
   eval_knn(knn_B, test_data)                       %>% mutate(Method = "kNN",                Type = "Non-parametric", Partition = "B"),
   eval_ordinal(ordinal_A, test_data, PARTITION_A)  %>% mutate(Method = "Ordinal Regression", Type = "Parametric",     Partition = "A"),
   eval_ordinal(ordinal_B, test_data, PARTITION_B)  %>% mutate(Method = "Ordinal Regression", Type = "Parametric",     Partition = "B"),
-  eval_partial(partial_A, test_data, PARTITION_A)  %>% mutate(Method = "Partial PPO",        Type = "Parametric",     Partition = "A"),
+  eval_partial(partial_A, test_data, PARTITION_A)  %>% mutate(Method = "Partial PO",        Type = "Parametric",     Partition = "A"),
   eval_multinom(multinomial_A, test_data, PARTITION_A) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",   Partition = "A"),
   eval_multinom(multinomial_B, test_data, PARTITION_B) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",   Partition = "B")
 ) %>%
   select(Type, Method, Partition, `Acc (%)`, `+-1 Class Acc (%)`, `Macro F1`, `Poor Recall (%)`) %>%
-  arrange(Type, Method, Partition)
+  rename(Part = Partition, `Acc` = `Acc (%)`, `+-1 Acc` = `+-1 Class Acc (%)`, `Poor Rec` = `Poor Recall (%)`) %>%
+  arrange(Type, Method, Part) %>%
+  print(width = Inf)
 
-summary_table
 ```
 
 ### Model performance (Macro F1 plots)
@@ -1978,7 +1979,7 @@ recall_long <- bind_rows(
   class_recall_knn(knn_B, test_data)                           %>% mutate(Method = "kNN",              Type = "Non-parametric", Partition = "B"),
   class_recall_ordinal(ordinal_A, test_data, PARTITION_A)      %>% mutate(Method = "Ordinal Reg.",     Type = "Parametric",     Partition = "A"),
   class_recall_ordinal(ordinal_B, test_data, PARTITION_B)      %>% mutate(Method = "Ordinal Reg.",     Type = "Parametric",     Partition = "B"),
-  class_recall_partial(partial_A, test_data, PARTITION_A)      %>% mutate(Method = "Partial PPO",      Type = "Parametric",     Partition = "A"),
+  class_recall_partial(partial_A, test_data, PARTITION_A)      %>% mutate(Method = "Partial PO",        Type = "Parametric",     Partition = "A"),
   class_recall_multinom(multinomial_A, test_data, PARTITION_A) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",     Partition = "A"),
   class_recall_multinom(multinomial_B, test_data, PARTITION_B) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",     Partition = "B")
 ) %>%
