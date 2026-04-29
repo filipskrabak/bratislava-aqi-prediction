@@ -38,6 +38,7 @@ conflict_prefer("filter", "dplyr")
 conflict_prefer("lag", "dplyr")
 conflict_prefer("select", "dplyr")
 conflict_prefer("interval", "tsibble")
+conflict_prefer("vi", "vip")
 
 here::i_am("project.Rmd")
 set.seed(2026) # reproducibility
@@ -1027,7 +1028,7 @@ Single decision trees are prone to overfitting, but RF builds an ensemble of man
 
 
 This model has some limitations, though:
-- It cannot extrapolate beyond the range of training data, so it may struggle with extreme AQI values not seen during training.
+- It cannot extrapolate beyond the range of training data, so it may struggle with extreme values not seen during training.
 - It is essentially a "black box", so interpretability is limited compared to simpler models.
 
 We address the class imbalance by using inverse-frequency class weights. During training, misclassifying a minority class (Poor) is penalized more than misclassifying a majority class (Good, Fair, Moderate). This improves recall for Poor AQI hours, which are critical to be able to predict.
@@ -1332,9 +1333,6 @@ library(xgboost)
 XGB_BOOSTER <- "gbtree" # for structured data
 XGB_OBJECTIVE <- "multi:softmax" # multi-class classification with integer labels
 
-XGB_NROUNDS <- 200
-XGB_MAX_DEPTH <- 4 # depth=4 best val macro F1
-XGB_MIN_CHILD_WEIGHT <- 1 # min samples in a leaf; higher = less overfitting
 XGB_ETA <- 0.1 # learning rate
 XGB_SUBSAMPLE <- 0.8 # 80% of rows per tree
 XGB_COLSAMPLE <- 0.8 # 80% of features per tree
@@ -1380,13 +1378,11 @@ dtest_B <- create_dmatrix(test_data,  PARTITION_B)
 
 xgb_params <- list(
   booster = XGB_BOOSTER,
-  objective = XGB_OBJECTIVE, 
+  objective = XGB_OBJECTIVE,
   num_class = 4L,
-  max_depth = XGB_MAX_DEPTH,
   eta = XGB_ETA,
   subsample = XGB_SUBSAMPLE,
   colsample_bytree = XGB_COLSAMPLE,
-  min_child_weight = XGB_MIN_CHILD_WEIGHT,
   eval_metric = "mlogloss",
   nthread = XGB_NTHREAD,
   seed = XGB_SEED
@@ -1405,57 +1401,67 @@ compute_class_weights_xgb <- function(data, power) {
 train_grid <- model_features %>% filter(year(Start) <= 2021)
 val_data <- model_features %>% filter(year(Start) == 2022)
 
-dval_B_gs <- create_dmatrix(val_data, PARTITION_B)
-
-dtrain_grid_B <- create_dmatrix(train_grid, PARTITION_B)
-w_grid <- compute_class_weights_xgb(train_grid, XGB_WEIGHT_POWER)
-setinfo(dtrain_grid_B, "weight", w_grid)
-
 param_grid <- expand.grid(
   max_depth = c(3, 4, 5, 6),
   nrounds = c(100, 200, 300, 500),
   min_child_weight = c(1, 10)
 )
 
-# iterate each row of grid, returns one tibble row per combo
+run_xgb_grid <- function(partition) {
+  dval_gs <- create_dmatrix(val_data, partition)
+  dtrain_grid <- create_dmatrix(train_grid, partition)
+  w_grid <- compute_class_weights_xgb(train_grid, XGB_WEIGHT_POWER)
+  setinfo(dtrain_grid, "weight", w_grid)
+
+  pmap(param_grid, function(max_depth, nrounds, min_child_weight) {
+    p <- modifyList(xgb_params, list(max_depth = max_depth, min_child_weight = min_child_weight))
+    m <- xgb.train(params = p, data = dtrain_grid, nrounds = nrounds, verbose = 0)
+
+    preds_tr <- as.integer(predict(m, dtrain_grid)) + 1L
+    preds_v  <- as.integer(predict(m, dval_gs)) + 1L
+
+    tibble(
+      max_depth = max_depth,
+      nrounds = nrounds,
+      min_child_weight = min_child_weight,
+      train_f1 = macro_f1(preds_tr, as.integer(train_grid$AQI_p24)),
+      val_f1 = macro_f1(preds_v,  as.integer(val_data$AQI_p24)),
+      val_acc = round(100 * mean(preds_v == as.integer(val_data$AQI_p24)), 2),
+      gap = train_f1 - val_f1
+    )
+  }) %>% list_rbind()
+}
+
+#grid_A <- run_xgb_grid(PARTITION_A)
+#grid_B <- run_xgb_grid(PARTITION_B)
+
+#cat("=== Best Partition A ===\n")
+#best_A <- grid_A %>% arrange(desc(val_f1), gap, nrounds, max_depth) %>% slice(1) %>% print()
+#cat("\n=== Best Partition B ===\n")
+#best_B <- grid_B %>% arrange(desc(val_f1), gap, nrounds, max_depth) %>% slice(1) %>% print()
 ```
-grid_results <- pmap(param_grid, function(max_depth, nrounds, min_child_weight) {
-  p <- modifyList(xgb_params, list(max_depth = max_depth, min_child_weight = min_child_weight))
-  m <- xgb.train(params = p, data = dtrain_grid_B, nrounds = nrounds, verbose = 0)
 
-  preds_tr <- as.integer(predict(m, dtrain_grid_B)) + 1L
-  preds_v <- as.integer(predict(m, dval_B_gs)) + 1L
-
-  tibble(
-    max_depth = max_depth,
-    nrounds = nrounds,
-    min_child_weight = min_child_weight,
-    train_f1 = macro_f1(preds_tr, as.integer(train_grid$AQI_p24)),
-    val_f1 = macro_f1(preds_v,  as.integer(val_data$AQI_p24)),
-    val_acc = round(100 * mean(preds_v == as.integer(val_data$AQI_p24)), 2),
-    gap = train_f1 - val_f1 # overfit gap
-  )
-}) %>% list_rbind() # combine all rows into one tibble
 ```{r}
-# Best hyperparameters
-#best_params <- grid_results %>%
-#  arrange(desc(val_f1), gap, nrounds, max_depth) %>%
-#  slice(1) %>%
-#  print()
+# Set per-partition hyperparameters from grid results (mirrors RF structure)
+XGB_MAX_DEPTH_A <- 4  # best_A$max_depth
+XGB_MIN_CHILD_WEIGHT_A <- 1  # best_A$min_child_weight
+XGB_NROUNDS_A <- 200 # best_A$nrounds
 
-xgb_params$max_depth <- 6 #best_params$max_depth
-xgb_params$min_child_weight <- 1 #best_params$min_child_weight
-XGB_NROUNDS  <- 200 #best_params$nrounds
+XGB_MAX_DEPTH_B <- 6  # best_B$max_depth
+XGB_MIN_CHILD_WEIGHT_B <- 1  # best_B$min_child_weight
+XGB_NROUNDS_B <- 200 # best_B$nrounds
+
+xgb_params_A <- modifyList(xgb_params, list(max_depth = XGB_MAX_DEPTH_A, min_child_weight = XGB_MIN_CHILD_WEIGHT_A))
+xgb_params_B <- modifyList(xgb_params, list(max_depth = XGB_MAX_DEPTH_B, min_child_weight = XGB_MIN_CHILD_WEIGHT_B))
 ```
 
-We also calculate the overfitting gap (train F1 - val F1) for each combination. The best hyperparameters are printed above and applied for the final model.
+We also calculate the overfitting gap (train F1 - val F1) for each combination. The best hyperparameters per partition are printed above and applied to `xgb_params_A` / `xgb_params_B` for the final models.
 
 #### Fitting the model
 
 ```{r fit-xgb, cache=TRUE}
-fit_xgb <- function(dtrain, nrounds = XGB_NROUNDS, params = xgb_params) {
+fit_xgb <- function(dtrain, nrounds, params) {
   w <- compute_class_weights_xgb(train_data, power = XGB_WEIGHT_POWER)
-  dtrain <- xgb.DMatrix(data = xgb.get.DMatrix.data(dtrain), label = getinfo(dtrain, "label"))
   setinfo(dtrain, "weight", w)
   xgb.train(params = params, data = dtrain, nrounds = nrounds, verbose = 0)
 }
@@ -1476,8 +1482,8 @@ class_recall_xgb <- function(model, dtest, test_data) {
   compute_class_recall(p$preds, p$actual)
 }
 
-xgb_A <- fit_xgb(dtrain_A)
-xgb_B <- fit_xgb(dtrain_B)
+xgb_A <- fit_xgb(dtrain_A, nrounds = XGB_NROUNDS_A, params = xgb_params_A)
+xgb_B <- fit_xgb(dtrain_B, nrounds = XGB_NROUNDS_B, params = xgb_params_B)
 ```
 
 #### Evaluation
@@ -2160,8 +2166,8 @@ TREE_MINSPLIT <- 20 # min obs in a node to attempt a split
 TREE_MINBUCKET <- 7 # min obs in any terminal leaf
 
 # RF weighted predictions
-preds_rf_B <- preds_B_weighted$preds
-actual_int  <- preds_B_weighted$actual
+preds_rf_B <- preds_B$preds
+actual_int  <- preds_B$actual
 ```
 
 Why these values?
