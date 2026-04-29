@@ -1881,7 +1881,7 @@ logodds_df <- map_dfr(continuous_vars_check, function(var) {
   bin_stats <- df %>%
     count(bin, y) %>%
     #complete(bin, y = 1:4, fill = list(n = 0)) %>%
-    mutate(total = sum(n), prop = n / total, .by=bin) %>% # calculate proportion of each class in the bin
+    mutate(total = sum(n), prop = n / total, .by=bin) # calculate proportion of each class in the bin
 
   bin_medians <- df %>%
     summarise(x_med = median(x), .by = bin) # calculate median of each bin
@@ -1906,7 +1906,7 @@ ggplot(logodds_df, aes(x_med, log_odds, color = Class)) +
   facet_wrap(~ variable, scales = "free_x", ncol = 3) +
   scale_color_brewer(palette = "Set1") +
   labs(
-    title    = "Linearity of log-odds assumption check",
+    title = "Linearity of log-odds assumption check",
     subtitle = "log(P(AQI=k) / P(AQI=Good)) vs predictor bin median",
     x = "Predictor bin median", y = "log(P(k) / P(Good))", color = "AQI Class"
   ) +
