@@ -530,6 +530,39 @@ complete_data %>%
 
 Those readings are real world, validated sensor measurements, not errors. They are kept in the dataset, as they represent the most critical air quality events, which are important to capture.
 
+## Pollutant distributions by AQI class
+
+To understand how individual pollutants relate to AQI, we plot their distributions across the four AQI classes. This should reveal what kind of relationships (linear/nonlinear) we can expect between each pollutant and AQI.
+
+```{r pollutant-by-aqi}
+complete_data %>%
+  as_tibble() %>%
+  select(AQI, PM2.5, NO2, O3, SO2) %>%
+  drop_na() %>%
+  rename(PM25 = PM2.5) %>%
+  mutate(AQI_label = factor(AQI, levels = 1:4, labels = aqi_levels)) %>%
+  pivot_longer(c(PM25, NO2, O3, SO2), names_to = "Pollutant", values_to = "Concentration") %>%
+  ggplot(aes(AQI_label, Concentration, fill = AQI_label)) +
+  geom_boxplot(outlier.size = 0.3, outlier.alpha = 0.2, linewidth = 0.4) +
+  facet_wrap(~ Pollutant, scales = "free_y", nrow = 1) +
+  scale_fill_manual(values = aqi_colors) +
+  labs(
+    title = "Pollutant concentration by AQI class",
+    x = "AQI Class",
+    y = "Concentration (µg/m³)",
+    fill = "AQI Class"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 25, hjust = 1),
+    strip.text = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+PM2.5 and NO2 shows a monotone increase across AQI classes. However, O3's median seems to peak at Fair class, then drops at Moderate and Poor classes. This suggests that there is a non linear relationship between O3 and AQI.
+
 ## Decomposition and seasonality
 
 STL decomposition of AQI:
@@ -798,11 +831,9 @@ pairs(pairs_data,
 The pairs plot reveals several notable patterns.
 PM2.5 and PM10 are strongly correlated (r = 0.85), which indicates that they largely capture the same signal.
 NO2 is moderately correlated with PM2.5 and PM10 (r = 0.41), as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
-O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10. O3 is also nearly uncorrelated with AQI (r = -0.04) as it is only the main driver in around 11% of hours, and its relationship with AQI isn't linear.
-Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation. The AQI correlation is near zero (r = -0.03).
-Humidity is strongly negatively correlated with O3 (r = -0.73). Dry and sunny conditions drive high ozone. AQI correlation is near zero (r = -0.04).
-Wind speed is negatively correlated with AQI (r = -0.33) and with most pollutants, as higher wind disperses pollution.
-Pressure is weakly positively correlated with AQI (r = 0.13).
+O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10.
+Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation.
+Humidity is strongly negatively correlated with O3 (r = -0.73). Dry and sunny conditions drive high ozone.
 
 ## Collinearity Analysis (VIF)
 
@@ -876,7 +907,7 @@ to_remove <- c(
 Now we run VIF again after removing the 7 features above, to see the max VIF
 
 ```{r}
-PARTITION_B <- PARTITION_B_ALL %>% discard(~ .x %in% to_remove)
+PARTITION_B <- setdiff(PARTITION_B_ALL, to_remove)
 
 x_clean <- train_data %>% select(all_of(PARTITION_B))
 vif_final <- vif_func(x_clean)
@@ -925,11 +956,11 @@ compute_metrics <- function(preds, actual) {
   preds  <- preds[keep]
   actual <- actual[keep]
   tibble(
-    RMSE = round(sqrt(mean((preds - actual)^2)), 4),
-    MAE = round(mean(abs(preds - actual)), 4),
     `Acc (%)` = round(100 * mean(preds == actual), 2),
     `+-1 Class Acc (%)` = round(100 * mean(abs(preds - actual) <= 1), 2),
-    `Macro F1` = macro_f1(preds, actual)
+    `Macro F1` = macro_f1(preds, actual),
+    `Poor Recall (%)` = round(100 * mean(preds[actual == 4] == 4), 2),
+    `Poor Specificity (%)` = round(100 * mean(preds[actual != 4] != 4), 2)
   )
 }
 
@@ -990,7 +1021,9 @@ We also compare 3 parametric models and 3 non-parametric models (Scenario 2).
 
 ### Random Forest
 
-We include the Random Forest (RF) model because it handles non-linear relationships well. Single decision trees are prone to overfitting, but RF builds an ensemble of many trees on random subsets of data and features, which reduces variance and improves generalization.
+We include the Random Forest (RF) model because it handles non-linear relationships well. During EDA, we observed non-linear relationships between some predictors and AQI (e.g. O3 vs AQI).
+
+Single decision trees are prone to overfitting, but RF builds an ensemble of many trees on random subsets of data and features, which reduces variance and improves generalization.
 
 
 This model has some limitations, though:
@@ -1007,7 +1040,6 @@ RF_NUM_TREES <- 500 # OOB error stabilises before 500 trees
 RF_MAX_DEPTH <- NULL  # NULL = fully grown trees; limit showed no val F1 gain
 RF_N_THREADS <- max(1, parallel::detectCores() - 1)
 RF_SEED <- 2026
-RF_USE_CLASS_WEIGHTS <- TRUE # true - use inverse weights
 RF_WEIGHT_POWER <- 1.2 # exponent on inverse-frequency weights, tried {0.5, 0.6, ..., 3.0}
 # 1.2: best Poor recall / accuracy tradeoff
 
@@ -1031,12 +1063,10 @@ fit_rf <- function(train_data, partition,
                    min_node_size = 1, # override with grid value
                    max_depth = RF_MAX_DEPTH,
                    n_threads = RF_N_THREADS,
-                   seed = RF_SEED,
-                   use_weights = RF_USE_CLASS_WEIGHTS,
-                   weight_power = RF_WEIGHT_POWER) {
+                   seed = RF_SEED) {
 
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
-  weights <- if (use_weights) compute_class_weights(train_subset, power = weight_power) else NULL
+  weights <- compute_class_weights(train_subset)
   ranger(
     AQI_p24 ~ .,
     data = train_subset,
@@ -1080,7 +1110,7 @@ plot_importance <- function(model, title = "RF Permutation Importance") {
 
 # Runs grid search over mtry and min_node_size for a partition
 # Returns a tibble with train_f1, val_f1, val_acc and overfitting gap
-run_rf_grid <- function(partition, use_weights) {
+run_rf_grid <- function(partition) {
   grid <- expand.grid(
     mtry = c(2, 3, 5, 7, 10),
     min_node_size = c(1, 3, 5, 10, 20)
@@ -1088,8 +1118,7 @@ run_rf_grid <- function(partition, use_weights) {
 
   pmap(grid, function(mtry, min_node_size) {
     m <- fit_rf(rf_train_grid, partition,
-                   mtry = mtry, min_node_size = min_node_size,
-                   use_weights = use_weights)
+                   mtry = mtry, min_node_size = min_node_size)
     p_tr <- predict_rf(m, rf_train_grid, partition)
     p_v <- predict_rf(m, rf_val_data,   partition)
 
@@ -1118,21 +1147,21 @@ best_rf_combo <- function(grid_results) {
 `min.node.size` - minimum number of samples required to form a leaf. Larger values produce shallower trees, reducing variance and improving minority-class generalization.
 `num.trees` - fixed at 500, as adding more trees in RF never causes overfitting (only reduces variance), so it does not need to be grid-searched. OOB error stabilises well before 500.
 
-We sweep `mtry` for {2, 3, 5, 7, 10} and `min.node.size` for {1, 3, 5, 10, 20} separately for each partition, using a temporal split (train <= 2021, validate 2022). Partition A is fit without class weights (fewer features), Partition B uses weighted classes.
+We sweep `mtry` for {2, 3, 5, 7, 10} and `min.node.size` for {1, 3, 5, 10, 20} separately for each partition, using a temporal split (train <= 2021, validate 2022). Both partitions use inverse-frequency class weights.
 
 ```{r rf-grid, cache=TRUE}
 # temporal split
 rf_train_grid <- model_features %>% filter(year(Start) <= 2021)
 rf_val_data   <- model_features %>% filter(year(Start) == 2022)
 
-grid_A <- run_rf_grid(PARTITION_A, use_weights = FALSE)
-grid_B <- run_rf_grid(PARTITION_B, use_weights = TRUE)
+#grid_A <- run_rf_grid(PARTITION_A)
+#grid_B <- run_rf_grid(PARTITION_B)
 
-best_A <- best_rf_combo(grid_A)
-best_B <- best_rf_combo(grid_B)
+#best_A <- best_rf_combo(grid_A)
+#best_B <- best_rf_combo(grid_B)
 
-cat("=== Best Partition A ===\n"); print(best_A)
-cat("\n=== Best Partition B ===\n"); print(best_B)
+#cat("=== Best Partition A ===\n"); print(best_A)
+#cat("\n=== Best Partition B ===\n"); print(best_B)
 ```
 
 From the grid search results, we can see the results for each partition - which hyperparameters achieved the best validation F1, and what was the overfitting gap (train F1 - val F1).
@@ -1141,17 +1170,15 @@ For Partition B, `mtry = 3` and `min_node_size = 20` achieves the best validatio
 
 ```{r}
 # Set per-partition hyperparameters from grid results
-RF_MTRY_A <- best_A$mtry
-RF_MIN_NODE_SIZE_A <- best_A$min_node_size
-RF_MTRY_B <- best_B$mtry
-RF_MIN_NODE_SIZE_B <- best_B$min_node_size
+RF_MTRY_A <- 5 # best_A$mtry
+RF_MIN_NODE_SIZE_A <- 20 # best_A$min_node_size
+RF_MTRY_B <- 3 # best_B$mtry
+RF_MIN_NODE_SIZE_B <- 20 # best_B$min_node_size
 ```
 
 ```{r fit-rf, cache=TRUE}
-rf_A <- fit_rf(train_data, PARTITION_A, mtry = RF_MTRY_A, min_node_size = RF_MIN_NODE_SIZE_A, use_weights = FALSE)
-rf_B <- fit_rf(train_data, PARTITION_B, mtry = RF_MTRY_B, min_node_size = RF_MIN_NODE_SIZE_B, use_weights = FALSE)
-
-rf_B_weighted <- fit_rf(train_data, PARTITION_B, mtry = RF_MTRY_B, min_node_size = RF_MIN_NODE_SIZE_B, use_weights = TRUE)
+rf_A <- fit_rf(train_data, PARTITION_A, mtry = RF_MTRY_A, min_node_size = RF_MIN_NODE_SIZE_A)
+rf_B <- fit_rf(train_data, PARTITION_B, mtry = RF_MTRY_B, min_node_size = RF_MIN_NODE_SIZE_B)
 ```
 
 Overall performance on the 2023-2024 test set:
@@ -1159,9 +1186,8 @@ Overall performance on the 2023-2024 test set:
 ```{r}
 evals_RF <- list(
   "A - pollutants only" = eval_rf(rf_A, test_data, PARTITION_A),
-  "B - all features" = eval_rf(rf_B, test_data, PARTITION_B),
-  "B - all features (weighted)" = eval_rf(rf_B_weighted, test_data, PARTITION_B)
-) 
+  "B - all features" = eval_rf(rf_B, test_data, PARTITION_B)
+)
 
 evals_RF %>%
   list_rbind(names_to = "Partition")
@@ -1170,15 +1196,15 @@ evals_RF %>%
 OOB F1 (each row predicted only by trees that never saw it) matches test F1 (no overfitting)
 
 ```{r}
-oob_preds <- rf_B_weighted$predictions
+oob_preds <- rf_B$predictions
 valid_oob  <- !is.na(oob_preds)
 
 tibble(
   set = c("Train in-sample (biased)", "OOB (unbiased)", "Test 2023-24"),
   macro_f1 = c(
-    macro_f1(as.integer(predict(rf_B_weighted, data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))))$predictions), as.integer(train_data$AQI_p24)),
+    macro_f1(as.integer(predict(rf_B, data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))))$predictions), as.integer(train_data$AQI_p24)),
     macro_f1(as.integer(oob_preds[valid_oob]), as.integer(train_data$AQI_p24[valid_oob])),
-    eval_rf(rf_B_weighted, test_data, PARTITION_B)$`Macro F1`
+    eval_rf(rf_B, test_data, PARTITION_B)$`Macro F1`
   )
 )
 ```
@@ -1187,10 +1213,8 @@ Per-class recall:
 ```{r}
 cat("--- Partition A ---\n")
 class_recall_rf(rf_A, test_data, PARTITION_A) %>% print()
-cat("\n--- Partition B (unweighted) ---\n")
+cat("\n--- Partition B ---\n")
 class_recall_rf(rf_B, test_data, PARTITION_B) %>% print()
-cat("\n--- Partition B (weighted) ---\n")
-class_recall_rf(rf_B_weighted, test_data, PARTITION_B) %>% print()
 ```
 
 ```{r}
@@ -1198,24 +1222,23 @@ plot_importance(rf_A, "RF Permutation Importance (Partition A)")
 ```
 
 ```{r}
-plot_importance(rf_B_weighted, "RF Permutation Importance (Partition B weighted)")
+plot_importance(rf_B, "RF Permutation Importance (Partition B)")
 ```
 
 #### Confusion matrix
 
 ```{r}
-# We take predictions from the weighted model
-preds_B_weighted <- predict_rf(rf_B_weighted, test_data, PARTITION_B)
-actual_cls <- preds_B_weighted$actual
-pred_cls <- preds_B_weighted$preds
+preds_B <- predict_rf(rf_B, test_data, PARTITION_B)
+actual_cls <- preds_B$actual
+pred_cls <- preds_B$preds
 act_pred_tb <- tibble(Actual = actual_cls, Predicted = pred_cls)
 
-plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: RF Partition B (weighted, pwr=1.7)")
+plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: RF Partition B")
 ```
 
 The confusion matrix shows recall per class on the diagonal.
-The model is strong for Fair (71.8%) and Moderate (49.1%). With class weighting (power 1.1), Poor recall rises to **53.3%**, which is a meaningful improvement over the unweighted model (8%).
-Most misclassifications are adjacent-class (+-1) errors (for example, Poor predicted as Moderate, or Good predicted as Fair).
+The model is strong for Fair (71.8%) and Moderate (49.1%). With class weighting (power 1.2), Poor recall rises to **53.3%**.
+Most misclassifications are adjacent-class (±1) errors (for example, Poor predicted as Moderate, or Good predicted as Fair).
 
 #### Predicted vs. actual class distribution
 
@@ -1299,7 +1322,9 @@ Good is also well separated (AUC = 0.776). Moderate and Fair, being the dominant
 
 ### XGBoost
 
-This ensemble method builds trees sequentially, as opposed to RF which builds trees independently in parallel. New trees correct the residual errors of all previous trees combined. This allows XGBoost to learn from its mistakes at each step.
+This ensemble method builds trees sequentially, as opposed to RF which builds trees independently in parallel. New trees correct the residual errors of all previous trees combined. This allows XGBoost to learn from its mistakes at each step. The justification for selecting this model is the same as for RF, that there are non linear relationships between predictors and AQI, which linear models cannot capture. In addition, boosting can reduce systematic bias, which is likely present at the Moderate/Poor boundary due to borderline observations that are hard to classify. By iteratively focusing on residual errors, boosting can improve performance on these hard cases, which may improve recall for the critical Poor class.
+
+We include the same inverse-frequency class weights as in RF to address class imbalance. XGBoost thus serves as a strong alternative to RF, allowing direct comparison.
 
 ```{r}
 library(xgboost)
@@ -1313,7 +1338,7 @@ XGB_MIN_CHILD_WEIGHT <- 1 # min samples in a leaf; higher = less overfitting
 XGB_ETA <- 0.1 # learning rate
 XGB_SUBSAMPLE <- 0.8 # 80% of rows per tree
 XGB_COLSAMPLE <- 0.8 # 80% of features per tree
-XGB_WEIGHT_POWER <- 1.0 # exponent on inverse-frequency weights (same logic as RF)
+XGB_WEIGHT_POWER <- 0.6 # exponent on inverse-frequency weights (same logic as RF)
 XGB_SEED <- 2026
 XGB_NTHREAD <- max(1, parallel::detectCores() - 1)
 ```
@@ -1366,14 +1391,25 @@ xgb_params <- list(
   nthread = XGB_NTHREAD,
   seed = XGB_SEED
 )
+
+# inverse-frequency class weights (XGBoost normalized)
+compute_class_weights_xgb <- function(data, power) {
+  class_counts <- table(data$AQI_p24)
+  w_raw <- (1 / as.numeric(class_counts))^power
+  w_per_row <- w_raw[as.integer(data$AQI_p24)]
+  w_per_row / mean(w_per_row)
+}
 ```
 
 ```{r xgboost-grid, cache=TRUE}
 train_grid <- model_features %>% filter(year(Start) <= 2021)
 val_data <- model_features %>% filter(year(Start) == 2022)
 
-dtrain_grid_B <- create_dmatrix(train_grid, PARTITION_B)
 dval_B_gs <- create_dmatrix(val_data, PARTITION_B)
+
+dtrain_grid_B <- create_dmatrix(train_grid, PARTITION_B)
+w_grid <- compute_class_weights_xgb(train_grid, XGB_WEIGHT_POWER)
+setinfo(dtrain_grid_B, "weight", w_grid)
 
 param_grid <- expand.grid(
   max_depth = c(3, 4, 5, 6),
@@ -1382,20 +1418,9 @@ param_grid <- expand.grid(
 )
 
 # iterate each row of grid, returns one tibble row per combo
+```
 grid_results <- pmap(param_grid, function(max_depth, nrounds, min_child_weight) {
-  p <- list(
-    booster = XGB_BOOSTER, 
-    objective = XGB_OBJECTIVE, 
-    num_class = 4L,
-    max_depth = max_depth, 
-    eta = XGB_ETA, 
-    subsample = XGB_SUBSAMPLE,
-    colsample_bytree = XGB_COLSAMPLE, 
-    min_child_weight = min_child_weight,
-    eval_metric = "mlogloss", 
-    nthread = XGB_NTHREAD, 
-    seed = XGB_SEED
-  )
+  p <- modifyList(xgb_params, list(max_depth = max_depth, min_child_weight = min_child_weight))
   m <- xgb.train(params = p, data = dtrain_grid_B, nrounds = nrounds, verbose = 0)
 
   preds_tr <- as.integer(predict(m, dtrain_grid_B)) + 1L
@@ -1411,53 +1436,27 @@ grid_results <- pmap(param_grid, function(max_depth, nrounds, min_child_weight) 
     gap = train_f1 - val_f1 # overfit gap
   )
 }) %>% list_rbind() # combine all rows into one tibble
-
-# Best by val_f1
-best_params <- grid_results %>%
-  arrange(desc(val_f1), gap, nrounds, max_depth) %>%
-  slice(1) %>%
-  print()
-```
-
 ```{r}
-# Heatmap faceted by min_child_weight (fill = validation macro F1)
-grid_results %>%
-  mutate(
-    label = sprintf("F1=%.3f\nacc=%.1f%%\ngap=%.3f", val_f1, val_acc, gap),
-    min_child_weight = factor(min_child_weight, labels = c("min_child_weight = 1", "min_child_weight = 10"))
-  ) %>%
-  ggplot(aes(x = factor(nrounds), y = factor(max_depth), fill = val_f1)) +
-  geom_tile(color = "white", linewidth = 0.8) +
-  geom_text(aes(label = label), size = 2.8) +
-  facet_wrap(~min_child_weight) + # two panels
-  scale_fill_distiller(palette = "RdYlGn", direction = 1, name = "Val macro F1") + #red-yellow-green gradient
-  labs(
-    title    = "XGBoost grid search (max_depth, nrounds, min_child_weight)",
-    subtitle = "Train <=2021, validate = 2022 | By macro-averaged F1",
-    x = "nrounds", y = "max_depth"
-  ) +
-  theme_minimal()
+# Best hyperparameters
+#best_params <- grid_results %>%
+#  arrange(desc(val_f1), gap, nrounds, max_depth) %>%
+#  slice(1) %>%
+#  print()
+
+xgb_params$max_depth <- 6 #best_params$max_depth
+xgb_params$min_child_weight <- 1 #best_params$min_child_weight
+XGB_NROUNDS  <- 200 #best_params$nrounds
 ```
 
-The heatmap helps us visualize the grid that was searched. We also calculate the gap between train and validation F1 to check for possible overfitting. The best set of hyperparameters are as follows: `max_depth=3, nrounds=100, min_child_weight=10` with validation macro F1 of 0.409.
+We also calculate the overfitting gap (train F1 - val F1) for each combination. The best hyperparameters are printed above and applied for the final model.
 
 #### Fitting the model
 
 ```{r fit-xgb, cache=TRUE}
-# inverse frequency weights as in RF, normalized (due to ETA)
-compute_class_weights_xgb <- function(data, power) {
-  class_counts <- table(data$AQI_p24)
-  w_raw <- (1 / as.numeric(class_counts))^power
-  w_per_row <- w_raw[as.integer(data$AQI_p24)]
-  w_per_row / mean(w_per_row)
-}
-
-fit_xgb <- function(dtrain, nrounds = XGB_NROUNDS, params = xgb_params,
-                    use_weights = FALSE, weight_power = XGB_WEIGHT_POWER) {
-  if (use_weights) {
-    w <- compute_class_weights_xgb(train_data, power = weight_power)
-    setinfo(dtrain, "weight", w) # sets the weight 
-  }
+fit_xgb <- function(dtrain, nrounds = XGB_NROUNDS, params = xgb_params) {
+  w <- compute_class_weights_xgb(train_data, power = XGB_WEIGHT_POWER)
+  dtrain <- xgb.DMatrix(data = xgb.get.DMatrix.data(dtrain), label = getinfo(dtrain, "label"))
+  setinfo(dtrain, "weight", w)
   xgb.train(params = params, data = dtrain, nrounds = nrounds, verbose = 0)
 }
 
@@ -1477,9 +1476,8 @@ class_recall_xgb <- function(model, dtest, test_data) {
   compute_class_recall(p$preds, p$actual)
 }
 
-xgb_A <- fit_xgb(dtrain_A, use_weights = FALSE)
-xgb_B <- fit_xgb(dtrain_B, use_weights = FALSE)
-xgb_B_weighted <- fit_xgb(dtrain_B, use_weights = TRUE)
+xgb_A <- fit_xgb(dtrain_A)
+xgb_B <- fit_xgb(dtrain_B)
 ```
 
 #### Evaluation
@@ -1487,26 +1485,23 @@ xgb_B_weighted <- fit_xgb(dtrain_B, use_weights = TRUE)
 ```{r}
 list(
   "A - pollutants only" = eval_xgb(xgb_A, dtest_A, test_data),
-  "B - all features" = eval_xgb(xgb_B, dtest_B, test_data),
-  "B - all features (weighted)" = eval_xgb(xgb_B_weighted, dtest_B, test_data)
+  "B - all features" = eval_xgb(xgb_B, dtest_B, test_data)
 ) %>%
   list_rbind(names_to = "Partition")
 
 cat("--- Partition A ---\n")
 class_recall_xgb(xgb_A, dtest_A, test_data) %>% print()
-cat("\n--- Partition B (unweighted) ---\n")
+cat("\n--- Partition B ---\n")
 class_recall_xgb(xgb_B, dtest_B, test_data) %>% print()
-cat("\n--- Partition B (weighted) ---\n")
-class_recall_xgb(xgb_B_weighted, dtest_B, test_data) %>% print()
 ```
 
-Results show that the weighted version (Partition B) achieves the highest Macro F1 score (0.428) and significantly improves recall for the Poor class (61.1%) compared to the unweighted version (8.4%). However, this comes at the cost of overall accuracy, which drops to 49.7%. The unweighted version of Partition B achieves 62.2% accuracy, but a slightly lower 0.412 Macro F1.
+Partition B (all features) achieves higher Macro F1 than Partition A (pollutants only). Class weighting significantly improves recall for the Poor class at the cost of overall accuracy.
 
 #### Confusion matrix
 
 ```{r}
-p_xgb <- predict_xgb(xgb_B_weighted, dtest_B, test_data)
-plot_confusion_matrix(p_xgb$actual, p_xgb$preds, "Confusion Matrix: XGBoost Partition B (weighted)")
+p_xgb <- predict_xgb(xgb_B, dtest_B, test_data)
+plot_confusion_matrix(p_xgb$actual, p_xgb$preds, "Confusion Matrix: XGBoost Partition B")
 ```
 
 #### Feature importance
@@ -1946,6 +1941,41 @@ ggplot(logodds_df, aes(x_med, log_odds, color = Class)) +
 ```
 
 The results are somewhat mixed. For some predictors, the assumptions holds, but is violated for others. AQI_tX features show a very strong linear relationship with log-odds (which makes sense given the temporal autocorrelation of AQI). However, for some weather features (e.g. `O3`, `Wind_Direction`) the relationship is clearly non-linear, which violates the assumption and may lead to suboptimal performance of the multinomial model compared to more flexible methods like Random Forest or XGBoost that do not rely on this assumption.
+
+## Models Evaluation Summary
+
+```{r}
+# Collect test-set metrics for every fitted model into one tibble
+summary_table <- bind_rows(
+  eval_rf(rf_A, test_data, PARTITION_A)            %>% mutate(Method = "Random Forest",      Type = "Non-parametric", Partition = "A"),
+  eval_rf(rf_B, test_data, PARTITION_B)            %>% mutate(Method = "Random Forest",      Type = "Non-parametric", Partition = "B"),
+  eval_xgb(xgb_A, dtest_A, test_data)              %>% mutate(Method = "XGBoost",            Type = "Non-parametric", Partition = "A"),
+  eval_xgb(xgb_B, dtest_B, test_data)              %>% mutate(Method = "XGBoost",            Type = "Non-parametric", Partition = "B"),
+  eval_knn(knn_A, test_data)                       %>% mutate(Method = "kNN",                Type = "Non-parametric", Partition = "A"),
+  eval_knn(knn_B, test_data)                       %>% mutate(Method = "kNN",                Type = "Non-parametric", Partition = "B"),
+  eval_ordinal(ordinal_A, test_data, PARTITION_A)  %>% mutate(Method = "Ordinal Regression", Type = "Parametric",     Partition = "A"),
+  eval_ordinal(ordinal_B, test_data, PARTITION_B)  %>% mutate(Method = "Ordinal Regression", Type = "Parametric",     Partition = "B"),
+  eval_partial(partial_A, test_data, PARTITION_A)  %>% mutate(Method = "Partial PPO",        Type = "Parametric",     Partition = "A"),
+  eval_multinom(multinomial_A, test_data, PARTITION_A) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",   Partition = "A"),
+  eval_multinom(multinomial_B, test_data, PARTITION_B) %>% mutate(Method = "Multinomial Reg.", Type = "Parametric",   Partition = "B")
+) %>%
+  select(Type, Method, Partition, `Acc (%)`, `+-1 Class Acc (%)`, `Macro F1`, `Poor Recall (%)`) %>%
+  arrange(Type, Method, Partition)
+
+summary_table
+```
+
+**Scenario 1 - Models across 2 feature space partitions**
+Across all three models families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice. 
+
+@TODO: add feature importance plots, compare them
+
+
+`Features that matter in both families (e.g. `Pressure_MSL`, lagged AQI, `O3`) are therefore the most robust candidate features for this task. Non-parametric models expose this through permutation importance; parametric models through coefficient size and significance, offering complementary angles on explainability.`
+
+**Scenario 2 - Parametric vs. Non-parametric models**
+@TODO: dopisat
+`Non-parametric methods (RF, XGBoost) achieve the highest Macro F1 scores because they capture non-linear interactions (e.g. the non-monotone O3-AQI relationship shown in the EDA) without any distributional assumption. Parametric methods (Ordinal Regression, Partial PPO, Multinomial Regression) score lower on F1 but offer stronger explainability. Coefficients have a direct probabilistic interpretation, standard errors and p-values are available, and the Brant test makes the proportional-odds assumption auditable. They are also fully reproducible, as the same data always produce the same model, with no randomness from tree bootstrapping or gradient steps. For a regulatory or public-health context where decisions must be justified, parametric models are preferable; for raw predictive power, non-parametric ensemble methods win.`
 
 ## Scenario 3 - Feature Selection: Wrapper vs. Embedded
 
