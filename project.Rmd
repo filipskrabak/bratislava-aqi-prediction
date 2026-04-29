@@ -1684,7 +1684,7 @@ cat("\n=== Partition B - odds ratio ===\n"); print(exp(ordinal_B$coefficients))
 
 #### Performance evaluation
 
-The overall perfomrance and class recall metrics. Model B is better looking at the macro F1 score, even though it has lower recall for poor class
+The overall perfomrance and class recall metrics. Model B is better looking at the macro F1 score, even though it has lower recall for poor class.
 ```{r}
 
 predict_ordinal <- function(model, test_data, partition) {
@@ -1724,22 +1724,26 @@ plot_confusion_matrix(p_ord$actual, p_ord$preds, "Confusion Matrix: Ordinal Regr
 ``` 
 
 # Partial Proportional Odds
-As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportional odds model which relaxes this assumption on predictors that violate it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories.
+As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportional odds model which relaxes this assumption on predictors that violates it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories. These decisions about the the predictors were based on the Brant test above.
 
 ```{r}
 library(VGAM)
-fit_partial <- function(train_data, partition) {
+fit_partial <- function(train_data, partition, po_predictors) {
   train_subset_partial <- train_data %>% select(all_of(c(partition, "AQI_p24")))
+  formula <- as.formula(paste("TRUE ~ -1 +", paste(po_predictors, collapse = " + ")))
   vglm(AQI_p24 ~ ., data = train_subset_partial,
-       family = cumulative(parallel = TRUE ~ -1 + AQI_t2 + PM10))
+       family = cumulative(parallel = formula),
+       weights = compute_class_weights_ordinal(train_subset_partial))
 }
-
-partial_A <- fit_partial(train_data, PARTITION_A)
-#partial_B <- fit_partial(train_data, PARTITION_B)
+po_predictors_A <- c("AQI_t2", "PM10")
+partial_A <- fit_partial(train_data, PARTITION_A, po_predictors_A)
+#po_predictors_B <- c("AQI_t2", "Rain", "Cloud_Cover", "Cloud_Cover_Mid", "Cloud_Cover_High")
+#partial_B <- fit_partial(train_data, PARTITION_B, po_predictors_B)
 summary(partial_A)
 ```
-In partition B, there is a much bigger number of predictors than in A. As only small amount of these do not violate PO assumption, this model is basically very close to multinominal regression (both are actually) and we need to estimate coefficients for every predictor for every category. That requires that every combination can be assigned some probability. Problem arises if the estimated probabilities are close to 0 or 1 respectively, as the link functions are based on logharitms, making the estimation unstable.   
-
+After running both of these models, some issues became clear. The partial A model has a lot of warnings and the B one did not even converge to the solution. The reason why is this the case, is that some of our predictors has different impacts on each AQI class, making the model predict impossible probabilities such as negatives. This breaks the ordering of cumulative model.
+  
+It is possible to evaulate model A, as it did converge in the end, making it usable for predictions. The coefficent can be interpreted similarly as explained in ordered regression and multinomial regression (below) sections.
 ```{r}
 predict_partial <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
@@ -1769,9 +1773,9 @@ class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
 
 ### Multinomial regression
-The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. The next step is to try to fit full multinomial regression, even though the improvement will be very small if at all.
+The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. It also solves the issue with impossible probabilities, as multinomial regression treats every class independently.
 ```{r}
-MULTINOMIAL_WEIGHT_POWER <- 0.2 # 0 = no reweighting, 1 = fully balanced
+MULTINOMIAL_WEIGHT_POWER <- 0.7 # 0 = no reweighting, 1 = fully balanced
 compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
   w_raw     <- (1 / as.numeric(class_counts))^power
@@ -1797,7 +1801,7 @@ summary(multinomial_B)
 exp(coef(multinomial_B))
 ```
 
-We can interpret the exponentiated coefficients as odds ration against the base class, which is AQI level 1 (Good). All of the pollutant values have higher coefficients with higher category, meaning that increasing value of pollutants are more likely to equal to higher levels of AQI, as it should. For example with increasing pollutant PM2.5, it is 1.04 more likely AQI 2 than AQI 1. For third level it is 1.07 and for fourth 1.09. Values lower than 0 means that it is less likely, rain the day before usually does not mean higher level of AQI. We can visualize this by plotting proportion of rain for each category. Similar phenomena can explain large coefficients for Snowfall and Soil Moist Tempeture, but as the values are more rare it makes much bigger impact. 
+We can interpret the exponentiated coefficients as odds ratios against the base class, which is AQI level 1 (Good). All of the pollutant values have higher coefficients with higher category, meaning that increasing value of pollutants have increased odds of being in higher levels of AQI, as it should. For example with increasing pollutant PM2.5, the odds are 1.04 times higher for AQI 2 than AQI 1. For third level it is 1.07 and for fourth 1.09. Values lower than 1 means that it is has less odds, rain usually does not mean higher level of AQI. We can visualize this by plotting proportion of rain for each category. Very high odds ratios, for example with snowfall, means that data has only few occurrences of it. This can make the predictions for days with snow very innacurate, as the large coefficient is much larger than pollutant ones.
 
 ```{r}
 train_data %>%
@@ -1812,7 +1816,7 @@ train_data %>%
 ```
 
 #### Eval multinominal
-The accuracy and recall for this model is not very significantly changed compared to the other parametric or non-parametric models.
+The macro F1 and poor class recall is significantlly better compared to the partial PO model. When it comes to the ordinal regression, the F1 scores are simillar but the recall for poor class is much higher.
 ```{r}
 predict_multinom <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
