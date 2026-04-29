@@ -27,10 +27,10 @@ packages <- c(
   "performance", "brant", "knitr", "scales", "xgboost", "kknn", "vip"
 )
 
-missing_packages <- setdiff(packages, rownames(installed.packages()))
-if (length(missing_packages) > 0) {
-  install.packages(missing_packages, repos = "https://cran.rstudio.com", dependencies = TRUE)
-}
+#missing_packages <- setdiff(packages, rownames(installed.packages()))
+#if (length(missing_packages) > 0) {
+#  install.packages(missing_packages, repos = "https://cran.rstudio.com", dependencies = TRUE)
+#}
 
 invisible(lapply(packages, library, character.only = TRUE))
 
@@ -1919,7 +1919,7 @@ ggplot(logodds_df, aes(x_med, log_odds, color = Class)) +
 The results are somewhat mixed. For some predictors, the assumptions holds, but is violated for others. AQI_tX features show a very strong linear relationship with log-odds (which makes sense given the temporal autocorrelation of AQI). However, for some weather features (e.g. `O3`, `Wind_Direction`) the relationship is clearly non-linear, which violates the assumption and may lead to suboptimal performance of the multinomial model compared to more flexible methods like Random Forest or XGBoost that do not rely on this assumption.
 
 ## Models Evaluation Summary
-
+To compare all the models, the table below was created.
 ```{r}
 summary_table <- bind_rows(
   eval_rf(rf_A, test_data, PARTITION_A)            %>% mutate(Method = "Random Forest",      Type = "Non-parametric", Partition = "A"),
@@ -1940,6 +1940,8 @@ summary_table <- bind_rows(
   print(width = Inf)
 
 ```
+The table contains every model that were tried for AQI classification prediction, clearly separating parametric and non-parametric models across both feature spaces. Couple of interesting things can be noted focusing on the macro F1 score and recall for Poor AQI class. The best models based on macro F1 were non-parametric RF and XGBoost, but multinomial and ordinal regression followed very closely. The Poor recall were best for parametric models, where partial PO outpreformed every other one, noting that it's macro F1 was on the lower side. Then multinomial regression followed, and after that the XGBoost and RF, making these three models best balanced on both of macro F1 and Poor recall class metrics. 
+
 
 ### Model performance (Macro F1 plots)
 
@@ -1952,7 +1954,7 @@ method_order <- summary_table %>%
  
 summary_table %>%
   mutate(Method = factor(Method, levels = method_order)) %>%
-  ggplot(aes(x = Method, y = `Macro F1`, fill = Partition)) +
+  ggplot(aes(x = Method, y = `Macro F1`, fill = Part)) +
   geom_col(position = position_dodge(0.7), width = 0.6) +
   geom_text(aes(label = sprintf("%.3f", `Macro F1`)),
             position = position_dodge(0.7), vjust = -0.4, size = 2.8) +
@@ -1966,10 +1968,10 @@ summary_table %>%
   theme(legend.position = "bottom")
 ```
 
-Partition B (pollutants + weather) consistently outperforms Partition A (pollutants only) across every model. This confirms that weather features carry additional predictive signal beyond pollutant lags. Among non-parametric models, XGBoost achieves the highest Macro F1. Among parametric models, Multinomial Regression B performs the best.
+Partition B (pollutants + weather) consistently outperforms Partition A (pollutants only) across every model. This confirms that weather features carry additional predictive signal beyond pollutant lags. Among non-parametric models, XGBoost achieves the highest Macro F1. Among parametric models, Ordinal Regression performs the best.
 
 ### Per-class Recall Heatmap
-```{r fig.height=7}
+```{r}
 recall_long <- bind_rows(
   class_recall_rf(rf_A, test_data, PARTITION_A)                %>% mutate(Method = "Random Forest",    Type = "Non-parametric", Partition = "A"),
   class_recall_rf(rf_B, test_data, PARTITION_B)                %>% mutate(Method = "Random Forest",    Type = "Non-parametric", Partition = "B"),
@@ -2005,15 +2007,11 @@ recall_long %>%
   theme_minimal()
 ```
 
-The heatmap reveals a split between non-parametric and parametric.  Non-parametric models (RF, XGBoost) maintain relatively balanced recall thanks to the class weighting approach. 
-
-Parametric models have a worse poor recall than non-parametric models. They use less agressive class weighting to optimize their Macro F1 scores, but that comes at a cost.
-
-@TODO: rozdiel parametric vs non parametric
+The heatmap reveals a split between non-parametric and parametric.  Parametric models maintain relatively balanced recall thanks to the class weighting approach. Also they were much better at predicting both minority classes, while the majority classes Fair and Moderate have slightly lower recall. 
 
 ### Feature Importance: RF vs XGBoost
 
-```{r fig.height=8}
+```{r}
 library(patchwork)
 
 p_rf  <- vip(rf_B, num_features = 22, geom = "col") +
@@ -2037,7 +2035,7 @@ On the other hand, Snowfall seems to not be important at all for both models (ne
 
 ### Poor Class Precision-Recall
 
-We use Precision-Recall (PR) curves to evaluate the ability of models to detect the Poor class.
+We use Precision-Recall (PR) curves to evaluate the ability of models to detect the Poor class, based on both precision and recall metrics.  
 
 ```{r}
 library(PRROC)
@@ -2085,13 +2083,12 @@ ggplot(pr_df, aes(x = recall, y = precision, color = model)) +
   theme(legend.position = "bottom")
 ```
 
-RF and XGBoost are the strongest predictors for the Poor class, substantially above the random baseline. Parametric models are noticeably behind the non-parametric models, except for KNN which is essentially at the random baseline, and not useful for detecting the Poor class at all.
+RF and XGBoost are the strongest predictors for the Poor class, substantially above the random baseline. Parametric models are noticeably behind the non-parametric models, except for KNN which is essentially at the random baseline, and not useful for detecting the Poor class at all. As the parametrics models had equal or even better recall values in heatmap above, explanation why they are substentialy lower is because of the precision, meaning they more often missclassify other classes as Poor.
 
 **Scenario 1 - Models across 2 feature space partitions**
 Across all three model families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice.
 
-@TODO: dopisat podla zadania - prepisat text
-`Features that matter in both families (e.g. `Pressure_MSL`, lagged AQI, `O3`) are therefore the most robust candidate features for this task. Non-parametric models expose this through permutation importance; parametric models through coefficient size and significance, offering complementary angles on explainability.`
+Features that matter in both families, such as pollutants, lagged AQI and weather variables like pressure, were highly usefull for AQI predictions. Non-parametric models expose this through permutation importance, while with parametric models it can be analyzed by looking at the coefficents and statistical significance, noting that some assumption are violated in this dataset. Interesting variable is Snowfall, which there are only few observation in the dataset that has snowy hours. Parametric models interpret this as highly influencial parameter, while the non-parametric models have it as one of the lowest important features.
 
 **Scenario 2 - Parametric vs. Non-parametric models**
 
