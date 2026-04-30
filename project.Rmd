@@ -39,6 +39,7 @@ conflict_prefer("lag", "dplyr")
 conflict_prefer("select", "dplyr")
 conflict_prefer("interval", "tsibble")
 conflict_prefer("vi", "vip")
+conflict_prefer("slice", "dplyr")
 
 here::i_am("project.Rmd")
 set.seed(2026) # reproducibility
@@ -819,7 +820,9 @@ pairs_data <- complete_data %>%
   rename(PM25 = `PM2.5`) %>% # for clarity
   select(PM25, PM10, NO2, O3, SO2,
          Temperature, Humidity, Wind_Speed, Pressure_MSL) %>%
-  drop_na() %>%
+  drop_na()
+set.seed(2026)
+pairs_data <- pairs_data %>%
   slice_sample(n = 3000)
 
 pairs(pairs_data,
@@ -1159,11 +1162,11 @@ rf_val_data   <- model_features %>% filter(year(Start) == 2022)
 
 From the grid search results, we can see the results for each partition - which hyperparameters achieved the best validation F1, and what was the overfitting gap (train F1 - val F1).
 
-For Partition B, `mtry = 3` and `min_node_size = 20` achieves the best validation macro F1 (0.322) with the lowest overfitting gap (0.070). Higher `mtry` values inflate training F1 without improving validation performance. For Partition A (pollutants only), the optimal is `mtry = 5` and `min_node_size = 20`.
+For Partition B, `mtry = 3` and `min_node_size = 20` achieves the best validation macro F1 with the lowest overfitting gap. Higher `mtry` values inflate training F1 without improving validation performance. For Partition A (pollutants only), the optimal is `mtry = 2` and `min_node_size = 20`.
 
 ```{r}
 # Set per-partition hyperparameters from grid results
-RF_MTRY_A <- 5 # best_A$mtry
+RF_MTRY_A <- 2 # best_A$mtry
 RF_MIN_NODE_SIZE_A <- 20 # best_A$min_node_size
 RF_MTRY_B <- 3 # best_B$mtry
 RF_MIN_NODE_SIZE_B <- 20 # best_B$min_node_size
@@ -1320,8 +1323,7 @@ XGB_OBJECTIVE <- "multi:softmax" # multi-class classification with integer label
 XGB_ETA <- 0.1 # learning rate
 XGB_SUBSAMPLE <- 0.8 # 80% of rows per tree
 XGB_COLSAMPLE <- 0.8 # 80% of features per tree
-XGB_WEIGHT_POWER <- 0.6 # exponent on inverse-frequency weights (same logic as RF)
-XGB_SEED <- 2026
+XGB_WEIGHT_POWER <- 0.8 # exponent on inverse-frequency weights (same logic as RF)
 XGB_NTHREAD <- max(1, parallel::detectCores() - 1)
 ```
 
@@ -1368,8 +1370,7 @@ xgb_params <- list(
   subsample = XGB_SUBSAMPLE,
   colsample_bytree = XGB_COLSAMPLE,
   eval_metric = "mlogloss",
-  nthread = XGB_NTHREAD,
-  seed = XGB_SEED
+  nthread = XGB_NTHREAD
 )
 
 # inverse-frequency class weights (XGBoost normalized)
@@ -1382,6 +1383,7 @@ compute_class_weights_xgb <- function(data, power) {
 ```
 
 ```{r xgboost-grid, cache=TRUE}
+set.seed(2026)
 train_grid <- model_features %>% filter(year(Start) <= 2021)
 val_data <- model_features %>% filter(year(Start) == 2022)
 
@@ -1416,6 +1418,7 @@ run_xgb_grid <- function(partition) {
   }) %>% list_rbind()
 }
 
+# We commented out grid search as it already found the best hyperparameters
 #grid_A <- run_xgb_grid(PARTITION_A)
 #grid_B <- run_xgb_grid(PARTITION_B)
 
@@ -1427,13 +1430,13 @@ run_xgb_grid <- function(partition) {
 
 ```{r}
 # Set per-partition hyperparameters from grid results (mirrors RF structure)
-XGB_MAX_DEPTH_A <- 4  # best_A$max_depth
-XGB_MIN_CHILD_WEIGHT_A <- 1  # best_A$min_child_weight
-XGB_NROUNDS_A <- 200 # best_A$nrounds
+XGB_MAX_DEPTH_A <- 5  # best_A$max_depth
+XGB_MIN_CHILD_WEIGHT_A <- 10  # best_A$min_child_weight
+XGB_NROUNDS_A <- 100 # best_A$nrounds
 
 XGB_MAX_DEPTH_B <- 6  # best_B$max_depth
-XGB_MIN_CHILD_WEIGHT_B <- 1  # best_B$min_child_weight
-XGB_NROUNDS_B <- 200 # best_B$nrounds
+XGB_MIN_CHILD_WEIGHT_B <- 10  # best_B$min_child_weight
+XGB_NROUNDS_B <- 100 # best_B$nrounds
 
 xgb_params_A <- modifyList(xgb_params, list(max_depth = XGB_MAX_DEPTH_A, min_child_weight = XGB_MIN_CHILD_WEIGHT_A))
 xgb_params_B <- modifyList(xgb_params, list(max_depth = XGB_MAX_DEPTH_B, min_child_weight = XGB_MIN_CHILD_WEIGHT_B))
@@ -1502,7 +1505,7 @@ xgb_pred_wrapper <- function(object, newdata) {
 }
 
 # XGBoost permutation importance (on test set)
-set.seed(XGB_SEED)
+set.seed(2026)
 xgb_imp_perm_B <- vi(
   object = xgb_B,
   method = "permute",
