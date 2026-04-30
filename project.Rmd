@@ -59,7 +59,6 @@ Current and lagged pollutant concentrations, combined with concurrent weather co
 -   This dataset comes from [European Enviroment Agency (EEA) Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/)
 -   It contains pollutants from year 2017 until the end of 2024
 -   Dataset type is Primary Validated Data (E1a), which is verified
--   Timezone is stated as UTC+1
 
 First, we load the dataset and take a look at its structure.
 
@@ -194,7 +193,6 @@ Now, after running the linear interpolation for maximum of 3 hour gaps, we reduc
 
 -   This dataset comes from [Open Meteo Historical Weather](https://open-meteo.com/en/docs/historical-weather-api)
 -   It contains weather data from year 2017 until the end of 2024
--   Timezone is stated as GMT+0
 
 We now load the dataset and rename the columns.
 
@@ -396,9 +394,9 @@ complete_data_six %>%
   labs(title = "AQI Distribution (2017-2024)", x = "AQI", y = "Count")
 ```
 
-Air quality in Bratislava is mostly Fair and Moderate (~89%). Good air quality happens in 5.2% of hours. Poor (original EEA classes 4-6, including Very poor and Extremely poor) accounts for 5.7% of hours.
+Air quality in Bratislava is mostly Fair and Moderate (~89%). Good air quality happens in 5.2% of hours. Poor (original EEA classes 4-6, including Very poor and Extremely poor) accounts for 5.8% of hours.
 
-The dataset is imbalanced due to Bratislava having Fair and Moderate air quality most of the time. The Poor class accounts for only 5.7% of the data, yet it is a critical class to be able to predict.
+The dataset is imbalanced due to Bratislava having Fair and Moderate air quality most of the time. The Poor class accounts for only 5.8% of the data, yet it is a critical class to be able to predict.
 We don't consider this as a problem by itself, as the data distribution reflects the reality of Bratislava's AQI levels, and there are techniques to handle this imbalance.
 
 ## Merging Rare AQI Classes
@@ -426,7 +424,7 @@ complete_data %>%
   mutate(pct = round(100 * n / sum(n), 1))
 ```
 
-The merged "Poor" class accounts for about 5.7% of the data, which is still a minority, but large enough for the models to learn from. We also preserve the health related distinction.
+The merged "Poor" class accounts for about 5.8% of the data, which is still a minority, but large enough for the models to learn from. We also preserve the health related distinction.
 Classes 1 to 3 represent safe conditions, while class 4 signals actionable poor air quality.
 
 ## AQI Drivers
@@ -586,7 +584,8 @@ data_season_year_day <- complete_data %>%
   components()
 
 ```
-STL decomposition showcase a couple of usefull plots that helps understand the AQI data and how they change over time. The overall trend is overall going downwards, with the exception of 2024 year. The yearly and daily patter ale clearly visible, indicating that data has yearly and daily seasonality present. On the other hand weekly patter is looking pretty random, meaning that the AQI is not influenced much by day of the week.
+
+STL decomposition showcase a couple of useful plots that helps understand the AQI data and how they change over time. The overall trend is going downwards, with the exception of 2024 year. The yearly and daily patterns are clearly visible, indicating that data has yearly and daily seasonality present. On the other hand weekly pattern is looking fairly random, meaning that the day of the week does not influence AQI much.
 
 ```{r}
 monthly_aqi <- complete_data %>%
@@ -604,7 +603,7 @@ monthly_aqi %>%
 ```
 
 Looking at the blue line that represents mean, the plot shows that AQI is worse around winter months (November to March), spring and autumn months have the best air quality, while summer is somewhere in the middle.
-This is likely caused by heating in the winter months (by PM2.5) and in the summer because of frequent O3 pollution.
+This is likely caused by heating in the winter months (by PM2.5) and in the summer because of the frequent O3 pollution.
 
 ```{r}
 hourly_aqi <- complete_data %>%
@@ -632,7 +631,7 @@ hourly_aqi %>%
   )
 ```
 
-The hourly plot shows that there is a slight peak at around 6am, then slightly dips down, and around 9-10 it starts climbing again till the late night hours.
+The hourly plot shows that there is a slight peak at around 6am, then slightly dips down, and around 9-10am it starts climbing again until the late night hours.
 
 
 ## Autocorrelation
@@ -685,7 +684,8 @@ The mean is not constant, due to winter peaks and summer troughs, but there is n
 
 # Feature Engineering
 
-Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models. We decided the lag variables based on autocorrelation analysis.
+@TODO 
+Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models. This is widely supported by existing work. We decided the lag variables based on autocorrelation analysis.
 
 ```{r}
 model_features <- complete_data %>%
@@ -818,11 +818,11 @@ pairs(pairs_data,
 ```
 
 The pairs plot reveals several notable patterns.
-PM2.5 and PM10 are strongly correlated (r = 0.85), which indicates that they largely capture the same signal.
-NO2 is moderately correlated with PM2.5 and PM10 (r = 0.41), as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
+PM2.5 and PM10 are strongly correlated (r = 0.87), which indicates that they largely capture the same signal.
+NO2 is moderately correlated with PM2.5 and PM10, as they all peak during cold, stagnant winter episodes when heating emissions are high and dispersion is low.
 O3 is negatively correlated with NO2 (r = -0.57), and does not show a linear relationship with PM2.5/PM10.
-Temperature is quite strongly positively correlated with O3 (r = 0.65) as hot, sunny conditions drive ozone formation.
-Humidity is strongly negatively correlated with O3 (r = -0.73). Dry and sunny conditions drive high ozone.
+Temperature is quite strongly positively correlated with O3 (r = 0.64) as hot, sunny conditions drive ozone formation.
+Humidity is strongly negatively correlated with O3 (r = -0.72). Dry and sunny conditions drive high ozone.
 
 ## Collinearity Analysis (VIF)
 
@@ -877,7 +877,6 @@ Precipitation group - Rain and Precipitation are extremely correlated (0.99). In
 Temperature group - Temperature, Dew_Point, Soil_Temp_0_7, Humidity, and Vapour_Pressure_Def all measure very similar aspects.
 Wind group - Wind_Speed and Wind_Gusts have a strong correlation (r = 0.94).
 
-
 We also remove some features based on domain knowledge and previous plot or VIF results.
 
 ```{r}
@@ -893,7 +892,7 @@ to_remove <- c(
 )
 ```
 
-Now we run VIF again after removing the 7 features above, to see the max VIF
+Now we run VIF again after removing the 7 features above, to see the max VIF.
 
 ```{r}
 PARTITION_B <- setdiff(PARTITION_B_ALL, to_remove)
@@ -920,9 +919,9 @@ This split ensures no future observations leak into the training data.
 
 ## Metrics
 
-We report overall accuracy, +-1 class accuracy, macro-averaged F1 score, and per-class recall. 
+We report overall accuracy, +-1 class accuracy, macro F1 score, and per-class recall. 
 
-We use Macro-Averaged F1 and Poor Class Recall for model evaluation. Macro F1 was chosen because of the class imbalance and the importance of predicting all classes well, not just the majority classes. Model that never predicts Good or Poor is penalised regardless of how well it handles the majority classes. It is important to us that we are able to capture as many as possible of the critical Poor AQI hours, while also maintaining good performance on the other classes.
+We use Macro F1 and Poor Class Recall for model evaluation. Macro F1 was chosen because of the class imbalance and the importance of predicting all classes well, not just the majority classes. Model that never predicts Good or Poor is penalised regardless of how well it handles the majority classes. It is important to us that we are able to capture as many as possible of the critical Poor AQI hours, while also maintaining good performance on the other classes.
 
 ```{r}
 # Macro-averaged F1 (compute F1 per class, then average equally across all 4 classes)
@@ -1013,12 +1012,11 @@ We include the Random Forest (RF) model because it handles non-linear relationsh
 
 Single decision trees are prone to overfitting, but RF builds an ensemble of many trees on random subsets of data and features, which reduces variance and improves generalization.
 
-
 This model has some limitations, though:
 - It cannot extrapolate beyond the range of training data, so it may struggle with extreme values not seen during training.
 - It is essentially a "black box", so interpretability is limited compared to simpler models.
 
-We address the class imbalance by using inverse-frequency class weights. During training, misclassifying a minority class (Poor) is penalized more than misclassifying a majority class (Good, Fair, Moderate). This improves recall for Poor AQI hours, which are critical to be able to predict.
+We address the class imbalance by using inverse-frequency class weights. During training, misclassifying a minority class (Good, Poor) is penalized more than misclassifying a majority class (Fair, Moderate). This improves recall for Poor AQI hours, which are critical to be able to predict.
 Other methods include undersampling/oversampling, but those methods essentially throw away data or create non-existing ones. 
 
 ```{r}
@@ -1174,7 +1172,7 @@ evals_RF %>%
   list_rbind(names_to = "Partition")
 ```
 
-OOB F1 (each row predicted only by trees that never saw it) matches test F1 (no overfitting)
+OOB F1 (each row predicted only by trees that never saw it) is close to test F1 (no overfitting).
 
 ```{r}
 oob_preds <- rf_B$predictions
@@ -1210,8 +1208,8 @@ plot_confusion_matrix(actual_cls, pred_cls, "Confusion Matrix: RF Partition B")
 ```
 
 The confusion matrix shows recall per class on the diagonal.
-The model is strong for Fair (71.8%) and Moderate (49.1%). With class weighting (power 1.2), Poor recall rises to **53.3%**.
-Most misclassifications are adjacent-class (±1) errors (for example, Poor predicted as Moderate, or Good predicted as Fair).
+The model is strong for Fair (75%) and Moderate (49%). With class weighting, Poor recall rises to **50%**.
+Most misclassifications are adjacent-class (+-1) errors, for example, Poor predicted as Moderate, or Good predicted as Fair.
 
 #### Predicted vs. actual class distribution
 
@@ -1291,7 +1289,7 @@ roc_df %>%
 ```
 
 The strongest class is **Poor (AUC = 0.889)**, meaning the model reliably separates poor air quality from safe conditions.
-Good is also well separated (AUC = 0.776). Moderate and Fair, being the dominant classes, are harder to distinguish from each other: AUC = 0.728 and 0.700, respectively.
+Good is also well separated (AUC = 0.787). Moderate and Fair, being the dominant classes, are harder to distinguish from each other: AUC = 0.725 and 0.695, respectively.
 
 ### XGBoost
 
@@ -1318,7 +1316,7 @@ Key hyperparameters for XGBoost include:
 
 - `nrounds`: number of boosting rounds (trees). More rounds can improve performance but risk overfitting.
 - `max_depth`: maximum depth of each tree. Shallower trees = weaker learners, less overfitting.
-- `min_child_weight`: minimum number of samples required in a leaf node. Higher values force coarser splits, reducing overfitting on rare classes.
+- `min_child_weight`: minimum number of samples required in a leaf node. Higher values reduce overfitting.
 - `eta` (learning rate): step size at each boosting iteration. Smaller eta requires more rounds but reduces overfitting.
 - `subsample` and `colsample_bytree`: fractions of rows and features sampled per tree.
 
@@ -1482,6 +1480,8 @@ p_xgb <- predict_xgb(xgb_B, dtest_B, test_data)
 plot_confusion_matrix(p_xgb$actual, p_xgb$preds, "Confusion Matrix: XGBoost Partition B")
 ```
 
+Importance calculation for later comparison.
+
 ```{r xgb-importance, cache=TRUE}
 xgb_pred_wrapper <- function(object, newdata) {
   dm <- xgb.DMatrix(as.matrix(newdata))
@@ -1503,8 +1503,7 @@ xgb_imp_perm_B <- vi(
 ```
 
 ### k-Nearest Neighbours (kNN)
-
-kNN is a distance based method, which uses Euclidean distance to find the k closest training observations to each test observation, then classifies the test observation based on the majority class among those neighbors.
+kNN is a distance based method. We use Euclidean distance to find the k closest training observations to each test observation, then classifies the test observation based on the majority class among those neighbors.
 kNN has the assumption that similar points can be found near one another.
 
 This model assumes meaningful distances between feature vectors, so all numeric features are z-score scaled to ensure no single feature dominates the distance calculation.
@@ -1551,7 +1550,7 @@ cat("Best A: k=", KNN_K_A, " kernel=", KNN_KERNEL_A, "\n")
 cat("Best B: k=", KNN_K_B, " kernel=", KNN_KERNEL_B, "\n")
 ```
 
-The triangular kernel wins for both partitions, with k = 30 for Partition A and k = 20 for Partition B.
+The triangular kernel wins for both partitions, with k = 26 for Partition A and k = 20 for Partition B.
 
 The triangular kernel assigns higher weights to closer neighbors, and lower weights to farther neighbors.
 
@@ -1606,7 +1605,7 @@ cat("\n--- Partition B ---\n")
 class_recall_knn(knn_B, test_data) %>% print()
 ```
 
-Partition B overperforms A in Macro F1 slightly (0.334 vs 0.369), which again suggests that weather features add predictive value beyond pollutant lags.
+Partition B overperforms A in Macro F1 slightly (0.338 vs 0.369), which again suggests that weather features add predictive value beyond pollutant lags.
 Both partitions achieve >= 97% +-1 class accuracy, meaning that when the model is wrong it is almost always off by just one AQI category.
 
 Compared to RF, kNN does not offer class weight parameter. This means that kNN is affected by class imbalance more severely, as the imbalance directly shapes its predictions (model almost never outputs Good or Poor).
@@ -1622,7 +1621,8 @@ plot_confusion_matrix(p_knn$actual, p_knn$preds, "Confusion Matrix: kNN Partitio
 ```
 
 ### Ordinal regression
-When it comes to the parametric model, one of the criteria for choosing specific model is the nature of target variable. As the AQI is categorical variable, we need to choose models that do respect this. AQI is also ordinal variable, which restricts the options even more. This is why the first parametric model chosen for AQI prediction is ordinal regression, even though the underlying proportional assumption will be probably violated.
+When it comes to the parametric model, one of the criteria for choosing specific model is the nature of target variable. As the AQI is categorical variable, we need to choose models that do respect this. AQI is also ordinal variable, which restricts the options even more. This is why the first parametric model chosen for AQI prediction is ordinal regression, even though the underlying proportional assumption will be likely violated.
+
 
 ```{r warning=FALSE}
 # tried out different weight powers, this one has best performance
@@ -1651,7 +1651,8 @@ ordinal_B <- fit_ordinal(train_data, PARTITION_B)
 
 #### Assumption check: Proportional Odds (Brant test)
 
-The core assumption of ordinal regression is proportional odds, the coefficients that desribe relationships between categories are same. 
+@TODO
+The core assumption of ordinal regression is proportional odds, the coefficients that describe relationships between categories are the same. 
 
 ```{r warning=FALSE}
 cat("=== Brant test ===\n")
@@ -1659,10 +1660,10 @@ poTest(ordinal_A)
 poTest(ordinal_B)
 ```
 
-H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors are violating this assumption, making the modeled probabilities inccorect for categories.
+H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors are violating this assumption, making the modeled probabilities incorect for categories.
 
 #### Coefficient table
-As the PO assumption is violated, we cannot interpret the coefficents exactly, but they still provide some general direction how the variable influence the outcome. For example, in model ordinal_B, AQI_t (today value) for every one-unit increase, the prediction moves to the worse categories as oposed to the better ones by 0.5. It can be also explained in odds ratio, when we take the exponentiation of the coefficents. Increasing AQI makes the odds 1.64 times higher compared to better ones.
+As the PO assumption is violated, we cannot interpret the coefficents exactly, but they still provide some general direction how the variable influence the outcome. For example, in model ordinal_B, AQI_t (today value) for every one-unit increase, the prediction moves to the worse categories as oposed to the better ones by 0.5. It can be also explained in odds ratio, when we take the exponentiation of the coefficents. Increasing AQI makes the odds 1.64 times higher compared to better categories.
 
 ```{r}
 cat("=== Partition A ===\n"); print(summary(ordinal_A))
@@ -1712,7 +1713,7 @@ plot_confusion_matrix(p_ord$actual, p_ord$preds, "Confusion Matrix: Ordinal Regr
 ``` 
 
 # Partial Proportional Odds
-As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportional odds model which relaxes this assumption on predictors that violates it. The coefficients for predictors like this are fitted for each category separated while the ones that satisfy the PO will keep it same accross categories. These decisions about the the predictors were based on the Brant test above.
+As the ordinal regression did not satisfy PO assumption, it is possible to use partial proportional odds model which relaxes this assumption on predictors that violates it. The coefficients for predictors like this are fitted for each category separately while the ones that satisfy the PO will keep it same accross categories. These decisions about the the predictors were based on the Brant test above.
 
 ```{r}
 library(VGAM)
@@ -1729,9 +1730,10 @@ partial_A <- fit_partial(train_data, PARTITION_A, po_predictors_A)
 #partial_B <- fit_partial(train_data, PARTITION_B, po_predictors_B)
 summary(partial_A)
 ```
+
 After running both of these models, some issues became clear. The partial A model has a lot of warnings and the B one did not even converge to the solution. The reason why is this the case, is that some of our predictors has different impacts on each AQI class, making the model predict impossible probabilities such as negatives. This breaks the ordering of cumulative model.
   
-It is possible to evaulate model A, as it did converge in the end, making it usable for predictions. The coefficent can be interpreted similarly as explained in ordered regression and multinomial regression (below) sections.
+It is possible to evaluate model A, as it did converge in the end, making it usable for predictions. The coefficent can be interpreted similarly as explained in ordered regression and multinomial regression (below) sections.
 ```{r}
 predict_partial <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
@@ -1761,7 +1763,7 @@ class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 ```
 
 ### Multinomial regression
-The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. It also solves the issue with impossible probabilities, as multinomial regression treats every class independently.
+The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. It also solves the issue with negative probabilities, as multinomial regression treats every class independently.
 ```{r}
 MULTINOMIAL_WEIGHT_POWER <- 0.7 # 0 = no reweighting, 1 = fully balanced
 compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
@@ -1789,7 +1791,7 @@ summary(multinomial_B)
 exp(coef(multinomial_B))
 ```
 
-We can interpret the exponentiated coefficients as odds ratios against the base class, which is AQI level 1 (Good). All of the pollutant values have higher coefficients with higher category, meaning that increasing value of pollutants have increased odds of being in higher levels of AQI, as it should. For example with increasing pollutant PM2.5, the odds are 1.04 times higher for AQI 2 than AQI 1. For third level it is 1.07 and for fourth 1.09. Values lower than 1 means that it is has less odds, rain usually does not mean higher level of AQI. We can visualize this by plotting proportion of rain for each category. Very high odds ratios, for example with snowfall, means that data has only few occurrences of it. This can make the predictions for days with snow very innacurate, as the large coefficient is much larger than pollutant ones.
+We can interpret the exponentiated coefficients as odds ratios against the base class, which is AQI level 1 (Good). All of the pollutant values have higher coefficients with higher category, meaning that increasing value of pollutants have increased odds of being in higher levels of AQI, as they should. For example with increasing pollutant PM2.5, the odds are 1.04 times higher for Fair than Good. For Moderate it is 1.07 and for Poor 1.09. Values lower than 1 means that it is has less odds, rain usually does not mean higher level of AQI. We can visualize this by plotting proportion of rain for each category. Very high odds ratios, for example with snowfall, means that data has only few occurrences of it. This can make the predictions for days with snow very inaccurate, as the large coefficient is much larger than pollutant ones.
 
 ```{r}
 train_data %>%
@@ -1804,7 +1806,7 @@ train_data %>%
 ```
 
 #### Eval multinominal
-The macro F1 and poor class recall is significantlly better compared to the partial PO model. When it comes to the ordinal regression, the F1 scores are simillar but the recall for poor class is much higher.
+The macro F1 and poor class recall is significantly better compared to the partial PO model. When it comes to the ordinal regression, the F1 scores are similar but the recall for poor class is much higher.
 ```{r}
 predict_multinom <- function(model, test_data, partition) {
   test_features <- test_data %>% select(all_of(partition))
