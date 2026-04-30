@@ -684,8 +684,7 @@ The mean is not constant, due to winter peaks and summer troughs, but there is n
 
 # Feature Engineering
 
-@TODO 
-Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models. This is widely supported by existing work. We decided the lag variables based on autocorrelation analysis.
+Now, we transform the time series data into a format suitable for machine learning models - we basically make it a supervised learning problem, where the target variable is AQI 24 hours ahead (AQI_p24), and the features are the current and past values of AQI, pollutants, weather variables, and time features (hour, month). This allows us to use many different types of ML models. This is widely supported by existing work [3][4][5]. We decided the lag variables based on autocorrelation analysis.
 
 ```{r}
 model_features <- complete_data %>%
@@ -1651,16 +1650,14 @@ ordinal_B <- fit_ordinal(train_data, PARTITION_B)
 
 #### Assumption check: Proportional Odds (Brant test)
 
-@TODO
-The core assumption of ordinal regression is proportional odds, the coefficients that describe relationships between categories are the same. 
-
+The core assumption of ordinal regression is proportional odds, that every predictor shifts the odds of being in worse AQI classes by the same amount. 
 ```{r warning=FALSE}
 cat("=== Brant test ===\n")
 poTest(ordinal_A)
 poTest(ordinal_B)
 ```
 
-H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors are violating this assumption, making the modeled probabilities incorect for categories.
+H0: parallel regression assumption holds. Rejection (p < 0.05) means that predictor's effect differs across categories. As we can see in the output, most of the predictors violate this assumption, making the modeled probabilities unreliable for AQI categories.
 
 #### Coefficient table
 As the PO assumption is violated, we cannot interpret the coefficents exactly, but they still provide some general direction how the variable influence the outcome. For example, in model ordinal_B, AQI_t (today value) for every one-unit increase, the prediction moves to the worse categories as oposed to the better ones by 0.5. It can be also explained in odds ratio, when we take the exponentiation of the coefficents. Increasing AQI makes the odds 1.64 times higher compared to better categories.
@@ -2550,3 +2547,6 @@ Among parametric models, Multinomial Regression B competes closely with ensemble
 # References
 - [1] [Air Quality in Slovakia - Ministry of Health](https://www.minzp.sk/files/oblasti/ovzdusie/ochrana-ovzdusia/dokumenty/strategia-ochrany-ovzdusia/hodnotenie_pre_strategiu_podklady.pdf)
 - [2] [European Air Quality Index](https://www.eea.europa.eu/en/analysis/maps-and-charts/index)
+- [3] [Explainable forecasting of air quality index using a hybrid random forest and ARIMA model](https://www.sciencedirect.com/science/article/pii/S2215016125003619)
+- [4] [Ensemble learning for air quality index prediction: integrating gradient boosting, XGBoost, and stacking with SHAP-based interpretability](https://www.nature.com/articles/s41598-026-39232-w)
+- [5] [Designing of KNN-based Air Quality Predicting System](https://dl.acm.org/doi/full/10.1145/3744464.3744474)
