@@ -66,7 +66,7 @@ XGB_OBJECTIVE    <- "multi:softmax"
 XGB_ETA          <- 0.1
 XGB_SUBSAMPLE    <- 0.8
 XGB_COLSAMPLE    <- 0.8
-XGB_WEIGHT_POWER <- 0.6
+XGB_WEIGHT_POWER <- 0.8
 XGB_SEED         <- 2026
 XGB_NTHREAD      <- max(1, parallel::detectCores() - 1)
 XGB_MAX_DEPTH_A  <- 4;  XGB_MIN_CHILD_WEIGHT_A <- 1; XGB_NROUNDS_A <- 200
@@ -79,12 +79,12 @@ KNN_K_B       <- 20;  KNN_KERNEL_B <- "triangular"
 
 # Ordinal / Multinomial / Partial weights
 ORDINAL_WEIGHT_POWER     <- 0.2
-MULTINOMIAL_WEIGHT_POWER <- 0.2
+MULTINOMIAL_WEIGHT_POWER <- 0.7
 
 # Scenario 3 glmnet
 LASSO_ALPHA   <- 1.0
 ELNET_ALPHA   <- 0.5
-GLMNET_NFOLDS <- 10
+GLMNET_NFOLDS <- 5
 
 # Scenario 4 tree
 TREE_MAXDEPTH  <- 5
@@ -227,7 +227,7 @@ build_data <- function() {
   make_split_set <- function(df) {
     df %>%
       select(-Start) %>%
-      mutate(AQI_p24 = factor(AQI_p24, levels = 1:4, ordered = TRUE))
+      mutate(AQI_p24 = factor(pmin(AQI_p24, 4L), levels = 1:4, ordered = TRUE))
   }
 
   train_data <- model_features %>% filter(year(Start) <= 2022) %>% make_split_set()
@@ -329,21 +329,22 @@ compute_class_weights_ordinal <- function(train_data, power = ORDINAL_WEIGHT_POW
   class_counts <- table(train_data$AQI_p24)
   w_raw    <- (1 / as.numeric(class_counts))^power
   w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
-  w_per_row / sum(w_per_row) * nrow(train_data)
+  w_per_row / sum(w_per_row, na.rm = TRUE) * nrow(train_data)
 }
 
 compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
   w_raw    <- (1 / as.numeric(class_counts))^power
   w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
-  w_per_row / sum(w_per_row) * nrow(train_data)
+  w_per_row / sum(w_per_row, na.rm = TRUE) * nrow(train_data)
 }
 
 #  Random Forest ─
 fit_rf <- function(train_data, partition, mtry = NULL, min_node_size = 1,
-                   weighted = TRUE, num_trees = RF_NUM_TREES) {
+                   weighted = TRUE, num_trees = RF_NUM_TREES,
+                   weight_power = RF_WEIGHT_POWER) {
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
-  weights <- if (weighted) compute_class_weights_rf(train_subset) else NULL
+  weights <- if (weighted) compute_class_weights_rf(train_subset, power = weight_power) else NULL
   ranger(
     AQI_p24 ~ ., data = train_subset,
     num.trees = num_trees, mtry = mtry, importance = "permutation",
@@ -378,9 +379,10 @@ xgb_base_params <- list(
 )
 
 fit_xgb <- function(dtrain, nrounds, extra_params, train_data_for_weights,
-                    weighted = TRUE, base_params = xgb_base_params) {
+                    weighted = TRUE, base_params = xgb_base_params,
+                    weight_power = XGB_WEIGHT_POWER) {
   if (weighted) {
-    w <- compute_class_weights_xgb(train_data_for_weights)
+    w <- compute_class_weights_xgb(train_data_for_weights, power = weight_power)
     setinfo(dtrain, "weight", w)
   }
   params <- modifyList(base_params, extra_params)
@@ -408,10 +410,10 @@ predict_knn <- function(knn_fit, test_data) {
 }
 
 #  Ordinal Regression 
-fit_ordinal <- function(train_data, partition) {
+fit_ordinal <- function(train_data, partition, weight_power = ORDINAL_WEIGHT_POWER) {
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
   polr(AQI_p24 ~ ., data = train_subset, Hess = TRUE,
-       weights = compute_class_weights_ordinal(train_subset),
+       weights = compute_class_weights_ordinal(train_subset, power = weight_power),
        method = "logistic")
 }
 
@@ -444,13 +446,13 @@ predict_partial <- function(model, test_data, partition) {
 }
 
 #  Multinomial Regression 
-fit_multinom <- function(train_data, partition) {
+fit_multinom <- function(train_data, partition, weight_power = MULTINOMIAL_WEIGHT_POWER) {
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
   train_subset$AQI_p24 <- as.factor(as.character(train_subset$AQI_p24))
   vglm(AQI_p24 ~ ., data = train_subset,
        family  = multinomial(refLevel = 1),
        model   = TRUE,
-       weights = compute_class_weights_multinomial(train_subset))
+       weights = compute_class_weights_multinomial(train_subset, power = weight_power))
 }
 
 predict_multinom <- function(model, test_data, partition) {
@@ -576,7 +578,8 @@ ui <- page_navbar(
             sliderInput("inp_rf_mtry_a",     "mtry (Part. A)", 1,   11,   5,   step = 1),
             sliderInput("inp_rf_min_node_a", "Min node (A)",   5,   50,   20,  step = 5),
             sliderInput("inp_rf_mtry_b",     "mtry (Part. B)", 1,   22,   3,   step = 1),
-            sliderInput("inp_rf_min_node_b", "Min node (B)",   5,   50,   20,  step = 5)
+            sliderInput("inp_rf_min_node_b", "Min node (B)",   5,   50,   20,  step = 5),
+            sliderInput("inp_rf_weight_power", "Weight power",  0.1, 3.0,  1.2, step = 0.1)
           ),
           accordion_panel(
             "XGBoost",
@@ -588,7 +591,8 @@ ui <- page_navbar(
             sliderInput("inp_xgb_max_depth_a", "Max depth (A)",  2,    10,   4,    step = 1),
             sliderInput("inp_xgb_nrounds_a",   "Rounds (A)",     50,   500,  200,  step = 50),
             sliderInput("inp_xgb_max_depth_b", "Max depth (B)",  2,    10,   6,    step = 1),
-            sliderInput("inp_xgb_nrounds_b",   "Rounds (B)",     50,   500,  200,  step = 50)
+            sliderInput("inp_xgb_nrounds_b",   "Rounds (B)",     50,   500,  200,  step = 50),
+            sliderInput("inp_xgb_weight_power", "Weight power",  0.1,  3.0,  0.8,  step = 0.1)
           ),
           accordion_panel(
             "kNN",
@@ -599,7 +603,9 @@ ui <- page_navbar(
           ),
           accordion_panel(
             "Ordinal Regression",
-            actionButton("btn_train_ord", "Train Ordinal Reg.", class = "btn-primary btn-sm w-100")
+            actionButton("btn_train_ord", "Train Ordinal Reg.", class = "btn-primary btn-sm w-100"),
+            br(), br(),
+            sliderInput("inp_ord_weight_power", "Weight power", 0.1, 3.0, 0.2, step = 0.1)
           ),
           accordion_panel(
             "Partial PO",
@@ -607,7 +613,9 @@ ui <- page_navbar(
           ),
           accordion_panel(
             "Multinomial Reg.",
-            actionButton("btn_train_mul", "Train Multinomial Reg.", class = "btn-primary btn-sm w-100")
+            actionButton("btn_train_mul", "Train Multinomial Reg.", class = "btn-primary btn-sm w-100"),
+            br(), br(),
+            sliderInput("inp_mul_weight_power", "Weight power", 0.1, 3.0, 0.7, step = 0.1)
           )
         ),
         hr(),
@@ -668,22 +676,28 @@ ui <- page_navbar(
         actionButton("btn_train_sc3", "Run Feature Selection",
                      class = "btn-success w-100", icon = icon("play"))
       ),
-      layout_columns(
-        col_widths = c(12),
-        card(
-          card_header("Performance Comparison"),
-          tableOutput("tbl_sc3")
+      navset_card_tab(
+        nav_panel("Results",
+          layout_columns(
+            col_widths = c(12),
+            card(
+              card_header("Performance Comparison"),
+              tableOutput("tbl_sc3")
+            )
+          ),
+          layout_columns(
+            col_widths = c(6, 6),
+            card(card_header("Per-class Recall"),        plotOutput("plot_sc3_recall",  height = "340px")),
+            card(card_header("Feature Retention Table"), tableOutput("tbl_sc3_features"))
+          )
+        ),
+        nav_panel("CV Lambda Curves",
+          layout_columns(
+            col_widths = c(6, 6),
+            card(card_header("Lasso — CV misclassification vs. log(λ)"),     plotOutput("plot_lasso_cv",  height = "420px")),
+            card(card_header("Elastic Net — CV misclassification vs. log(λ)"), plotOutput("plot_elnet_cv", height = "420px"))
+          )
         )
-      ),
-      layout_columns(
-        col_widths = c(6, 6),
-        card(card_header("Per-class Recall"),         plotOutput("plot_sc3_recall", height = "340px")),
-        card(card_header("Feature Retention Table"),  tableOutput("tbl_sc3_features"))
-      ),
-      layout_columns(
-        col_widths = c(6, 6),
-        card(card_header("Lasso - CV Lambda"),     plotOutput("plot_lasso_cv",  height = "300px")),
-        card(card_header("Elastic Net - CV Lambda"), plotOutput("plot_elnet_cv", height = "300px"))
       )
     )
   ),
@@ -785,11 +799,11 @@ server <- function(input, output, session) {
       setProgress(0.2, detail = "RF A…")
       rf_A <- fit_rf(train_data, PARTITION_A,
                      mtry = input$inp_rf_mtry_a, min_node_size = input$inp_rf_min_node_a,
-                     num_trees = input$inp_rf_num_trees)
+                     num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
       setProgress(0.55, detail = "RF B…")
       rf_B <- fit_rf(train_data, PARTITION_B,
                      mtry = input$inp_rf_mtry_b, min_node_size = input$inp_rf_min_node_b,
-                     num_trees = input$inp_rf_num_trees)
+                     num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
       setProgress(0.85, detail = "RF probability forest…")
       rf_B_prob <- ranger(
         AQI_p24 ~ .,
@@ -797,7 +811,7 @@ server <- function(input, output, session) {
         num.trees = input$inp_rf_num_trees, mtry = input$inp_rf_mtry_b,
         min.node.size = input$inp_rf_min_node_b,
         num.threads = RF_N_THREADS, seed = RF_SEED,
-        case.weights = compute_class_weights_rf(train_data),
+        case.weights = compute_class_weights_rf(train_data, power = input$inp_rf_weight_power),
         probability = TRUE
       )
       setProgress(1.0)
@@ -817,11 +831,11 @@ server <- function(input, output, session) {
       setProgress(0.30, detail = "XGBoost A…")
       xgb_A <- fit_xgb(dtrain_A, input$inp_xgb_nrounds_a,
                         list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = XGB_MIN_CHILD_WEIGHT_A),
-                        train_data, base_params = lp)
+                        train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.60, detail = "XGBoost B…")
       xgb_B <- fit_xgb(dtrain_B, input$inp_xgb_nrounds_b,
                         list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = XGB_MIN_CHILD_WEIGHT_B),
-                        train_data, base_params = lp)
+                        train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.82, detail = "Permutation importance…")
       set.seed(XGB_SEED)
       xgb_imp_perm_B <- vi(
@@ -854,9 +868,9 @@ server <- function(input, output, session) {
   observeEvent(input$btn_train_ord, {
     withProgress(message = "Training Ordinal Regression…", value = 0, {
       setProgress(0.35, detail = "Ordinal A…")
-      ordinal_A <- fit_ordinal(train_data, PARTITION_A)
+      ordinal_A <- fit_ordinal(train_data, PARTITION_A, weight_power = input$inp_ord_weight_power)
       setProgress(0.75, detail = "Ordinal B…")
-      ordinal_B <- fit_ordinal(train_data, PARTITION_B)
+      ordinal_B <- fit_ordinal(train_data, PARTITION_B, weight_power = input$inp_ord_weight_power)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(ordinal_A = ordinal_A, ordinal_B = ordinal_B)))
     })
@@ -876,9 +890,9 @@ server <- function(input, output, session) {
   observeEvent(input$btn_train_mul, {
     withProgress(message = "Training Multinomial Regression…", value = 0, {
       setProgress(0.35, detail = "Multinomial A…")
-      multinomial_A <- fit_multinom(train_data, PARTITION_A)
+      multinomial_A <- fit_multinom(train_data, PARTITION_A, weight_power = input$inp_mul_weight_power)
       setProgress(0.75, detail = "Multinomial B…")
-      multinomial_B <- fit_multinom(train_data, PARTITION_B)
+      multinomial_B <- fit_multinom(train_data, PARTITION_B, weight_power = input$inp_mul_weight_power)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(multinomial_A = multinomial_A, multinomial_B = multinomial_B)))
     })
@@ -896,11 +910,11 @@ server <- function(input, output, session) {
       setProgress(0.04, detail = "RF A…")
       rf_A <- fit_rf(train_data, PARTITION_A,
                      mtry = input$inp_rf_mtry_a, min_node_size = input$inp_rf_min_node_a,
-                     num_trees = input$inp_rf_num_trees)
+                     num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
       setProgress(0.10, detail = "RF B…")
       rf_B <- fit_rf(train_data, PARTITION_B,
                      mtry = input$inp_rf_mtry_b, min_node_size = input$inp_rf_min_node_b,
-                     num_trees = input$inp_rf_num_trees)
+                     num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
       setProgress(0.16, detail = "RF probability forest…")
       rf_B_prob <- ranger(
         AQI_p24 ~ .,
@@ -908,7 +922,7 @@ server <- function(input, output, session) {
         num.trees = input$inp_rf_num_trees, mtry = input$inp_rf_mtry_b,
         min.node.size = input$inp_rf_min_node_b,
         num.threads = RF_N_THREADS, seed = RF_SEED,
-        case.weights = compute_class_weights_rf(train_data),
+        case.weights = compute_class_weights_rf(train_data, power = input$inp_rf_weight_power),
         probability = TRUE
       )
       rv_models(modifyList(rv_models(), list(rf_A = rf_A, rf_B = rf_B, rf_B_prob = rf_B_prob)))
@@ -921,11 +935,11 @@ server <- function(input, output, session) {
       setProgress(0.28, detail = "XGBoost A…")
       xgb_A <- fit_xgb(dtrain_A, input$inp_xgb_nrounds_a,
                         list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = XGB_MIN_CHILD_WEIGHT_A),
-                        train_data, base_params = lp)
+                        train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.38, detail = "XGBoost B…")
       xgb_B <- fit_xgb(dtrain_B, input$inp_xgb_nrounds_b,
                         list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = XGB_MIN_CHILD_WEIGHT_B),
-                        train_data, base_params = lp)
+                        train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.46, detail = "XGBoost importance…")
       set.seed(XGB_SEED)
       xgb_imp_perm_B <- vi(
@@ -946,9 +960,9 @@ server <- function(input, output, session) {
       rv_models(modifyList(rv_models(), list(knn_A = knn_A, knn_B = knn_B)))
 
       setProgress(0.62, detail = "Ordinal A…")
-      ordinal_A <- fit_ordinal(train_data, PARTITION_A)
+      ordinal_A <- fit_ordinal(train_data, PARTITION_A, weight_power = input$inp_ord_weight_power)
       setProgress(0.67, detail = "Ordinal B…")
-      ordinal_B <- fit_ordinal(train_data, PARTITION_B)
+      ordinal_B <- fit_ordinal(train_data, PARTITION_B, weight_power = input$inp_ord_weight_power)
       rv_models(modifyList(rv_models(), list(ordinal_A = ordinal_A, ordinal_B = ordinal_B)))
 
       setProgress(0.74, detail = "Partial PO…")
@@ -956,9 +970,9 @@ server <- function(input, output, session) {
       rv_models(modifyList(rv_models(), list(partial_A = partial_A)))
 
       setProgress(0.82, detail = "Multinomial A…")
-      multinomial_A <- fit_multinom(train_data, PARTITION_A)
+      multinomial_A <- fit_multinom(train_data, PARTITION_A, weight_power = input$inp_mul_weight_power)
       setProgress(0.90, detail = "Multinomial B…")
-      multinomial_B <- fit_multinom(train_data, PARTITION_B)
+      multinomial_B <- fit_multinom(train_data, PARTITION_B, weight_power = input$inp_mul_weight_power)
       rv_models(modifyList(rv_models(), list(multinomial_A = multinomial_A, multinomial_B = multinomial_B)))
 
       setProgress(1.0, detail = "Done!")
@@ -1172,7 +1186,7 @@ server <- function(input, output, session) {
         family       = "multinomial",
         alpha        = LASSO_ALPHA,
         nfolds       = GLMNET_NFOLDS,
-        weights      = compute_class_weights_multinomial(train_data),
+        weights      = compute_class_weights_multinomial(train_data, power = input$inp_mul_weight_power),
         type.measure = "class"
       )
 
@@ -1184,18 +1198,18 @@ server <- function(input, output, session) {
         family       = "multinomial",
         alpha        = ELNET_ALPHA,
         nfolds       = GLMNET_NFOLDS,
-        weights      = compute_class_weights_multinomial(train_data),
+        weights      = compute_class_weights_multinomial(train_data, power = input$inp_mul_weight_power),
         type.measure = "class"
       )
 
-      setProgress(0.8, detail = "StepAIC backward…")
+      setProgress(0.8, detail = "Step backward…")
       # Refit vglm locally so step4vglm can resolve the data name in this scope
       train_subset <- train_data %>% select(all_of(c(PARTITION_B, "AQI_p24")))
       train_subset$AQI_p24 <- as.factor(as.character(train_subset$AQI_p24))
       multinom_B_local <- vglm(AQI_p24 ~ ., data = train_subset,
                                family  = multinomial(refLevel = 1),
                                model   = TRUE,
-                               weights = compute_class_weights_multinomial(train_subset))
+                               weights = compute_class_weights_multinomial(train_subset, power = input$inp_mul_weight_power))
       multinom_step_B <- step4vglm(multinom_B_local, direction = "backward")
 
       setProgress(1.0)
@@ -1214,29 +1228,25 @@ server <- function(input, output, session) {
     preds_elnet <- as.integer(predict(s3$cv_elnet, newx = test_mat, s = "lambda.1se", type = "class"))
     preds_step  <- predict_multinom(s3$multinom_step_B, test_data, PARTITION_B)$preds
 
-    # Baseline rows only available when Multinomial B has been trained
+    # Baseline (Multinomial B) only available when that model has been trained
     baseline_metrics <- if (!is.null(p$p_mul_B)) {
-      bind_rows(
-        compute_metrics(p$p_mul_B$preds, actual_sc3) %>% mutate(Method = "Multinomial B (baseline)"),
-        compute_metrics(preds_step,      actual_sc3) %>% mutate(Method = "StepAIC backward")
-      )
+      compute_metrics(p$p_mul_B$preds, actual_sc3) %>% mutate(Method = "Multinomial B (baseline)")
     } else NULL
 
     sc3_metrics <- bind_rows(
       baseline_metrics,
+      compute_metrics(preds_step,  actual_sc3) %>% mutate(Method = "StepAIC backward"),
       compute_metrics(preds_lasso, actual_sc3) %>% mutate(Method = "Lasso lambda.1se"),
       compute_metrics(preds_elnet, actual_sc3) %>% mutate(Method = "Elastic Net lambda.1se")
     ) %>% select(Method, everything())
 
     baseline_recall <- if (!is.null(p$p_mul_B)) {
-      bind_rows(
-        compute_class_recall(p$p_mul_B$preds, actual_sc3) %>% mutate(Method = "Multinomial B"),
-        compute_class_recall(preds_step,      actual_sc3) %>% mutate(Method = "StepAIC")
-      )
+      compute_class_recall(p$p_mul_B$preds, actual_sc3) %>% mutate(Method = "Multinomial B")
     } else NULL
 
     sc3_recall <- bind_rows(
       baseline_recall,
+      compute_class_recall(preds_step,  actual_sc3) %>% mutate(Method = "StepAIC"),
       compute_class_recall(preds_lasso, actual_sc3) %>% mutate(Method = "Lasso"),
       compute_class_recall(preds_elnet, actual_sc3) %>% mutate(Method = "Elastic Net")
     ) %>% mutate(Label = factor(Label, levels = aqi_levels))
@@ -1493,37 +1503,15 @@ server <- function(input, output, session) {
   output$plot_lasso_cv <- renderPlot({
     req(sc3_data())
     cv_lasso <- sc3_data()$cv_lasso
-    lambda_df <- tibble(
-      log_lambda = log(cv_lasso$lambda),
-      cvm        = cv_lasso$cvm,
-      cvup       = cv_lasso$cvup,
-      cvlo       = cv_lasso$cvlo
-    )
-    ggplot(lambda_df, aes(log_lambda, cvm)) +
-      geom_ribbon(aes(ymin = cvlo, ymax = cvup), fill = "steelblue", alpha = 0.2) +
-      geom_line(color = "steelblue") +
-      geom_vline(xintercept = log(cv_lasso$lambda.min), linetype = "dashed", color = "#e74c3c") +
-      geom_vline(xintercept = log(cv_lasso$lambda.1se), linetype = "dashed", color = "#2ecc71") +
-      labs(title = "Lasso CV", x = "log(lambda)", y = "Misclassification") +
-      theme_minimal()
+    plot(cv_lasso)
+    title("Lasso - CV misclassification vs. log(lambda)", line = 2.5)
   })
 
   output$plot_elnet_cv <- renderPlot({
     req(sc3_data())
     cv_elnet <- sc3_data()$cv_elnet
-    lambda_df <- tibble(
-      log_lambda = log(cv_elnet$lambda),
-      cvm        = cv_elnet$cvm,
-      cvup       = cv_elnet$cvup,
-      cvlo       = cv_elnet$cvlo
-    )
-    ggplot(lambda_df, aes(log_lambda, cvm)) +
-      geom_ribbon(aes(ymin = cvlo, ymax = cvup), fill = "darkorange", alpha = 0.2) +
-      geom_line(color = "darkorange") +
-      geom_vline(xintercept = log(cv_elnet$lambda.min), linetype = "dashed", color = "#e74c3c") +
-      geom_vline(xintercept = log(cv_elnet$lambda.1se), linetype = "dashed", color = "#2ecc71") +
-      labs(title = "Elastic Net CV", x = "log(lambda)", y = "Misclassification") +
-      theme_minimal()
+    plot(cv_elnet)
+    title("Elastic Net - CV misclassification vs. log(lambda)", line = 2.5)
   })
 
   #  Tab 4: Scenario 4 
