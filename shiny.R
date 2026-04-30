@@ -1,9 +1,4 @@
-# =============================================================================
-# AQI Forecasting - Shiny App
-# All 4 scenarios, 6 model families, 2 partitions
-# =============================================================================
-
-#  Libraries 
+# Libraries 
 library(conflicted)
 library(shiny)
 library(bslib)
@@ -37,7 +32,7 @@ conflict_prefer("interval", "tsibble")
 conflict_prefer("vi", "vip")
 conflict_prefer("recode", "car")
 
-#  Constants 
+# Constants 
 aqi_levels <- c("Good", "Fair", "Moderate", "Poor")
 aqi_colors <- c(Good = "#50f0e6", Fair = "#50ccaa", Moderate = "#f0e641", Poor = "#ff5050")
 pollutant_colors <- c(
@@ -55,7 +50,7 @@ RF_MAX_DEPTH     <- NULL
 RF_N_THREADS     <- max(1, parallel::detectCores() - 1)
 RF_SEED          <- 2026
 RF_WEIGHT_POWER  <- 1.2
-RF_MTRY_A        <- 5
+RF_MTRY_A        <- 2
 RF_MIN_NODE_SIZE_A <- 20
 RF_MTRY_B        <- 3
 RF_MIN_NODE_SIZE_B <- 20
@@ -67,24 +62,23 @@ XGB_ETA          <- 0.1
 XGB_SUBSAMPLE    <- 0.8
 XGB_COLSAMPLE    <- 0.8
 XGB_WEIGHT_POWER <- 0.8
-XGB_SEED         <- 2026
 XGB_NTHREAD      <- max(1, parallel::detectCores() - 1)
-XGB_MAX_DEPTH_A  <- 4;  XGB_MIN_CHILD_WEIGHT_A <- 1; XGB_NROUNDS_A <- 200
-XGB_MAX_DEPTH_B  <- 6;  XGB_MIN_CHILD_WEIGHT_B <- 1; XGB_NROUNDS_B <- 200
+XGB_MAX_DEPTH_A  <- 5;  XGB_MIN_CHILD_WEIGHT_A <- 10; XGB_NROUNDS_A <- 100
+XGB_MAX_DEPTH_B  <- 6;  XGB_MIN_CHILD_WEIGHT_B <- 10; XGB_NROUNDS_B <- 100
 
 # kNN hyperparameters
 KNN_DISTANCE  <- 2
-KNN_K_A       <- 30;  KNN_KERNEL_A <- "triangular"
+KNN_K_A       <- 26;  KNN_KERNEL_A <- "triangular"
 KNN_K_B       <- 20;  KNN_KERNEL_B <- "triangular"
 
 # Ordinal / Multinomial / Partial weights
-ORDINAL_WEIGHT_POWER     <- 0.2
+ORDINAL_WEIGHT_POWER     <- 0.7
 MULTINOMIAL_WEIGHT_POWER <- 0.7
 
 # Scenario 3 glmnet
 LASSO_ALPHA   <- 1.0
 ELNET_ALPHA   <- 0.5
-GLMNET_NFOLDS <- 5
+GLMNET_NFOLDS <- 10
 
 # Scenario 4 tree
 TREE_MAXDEPTH  <- 5
@@ -96,7 +90,7 @@ TREE_MINBUCKET <- 7
 # PREPROCESSING PIPELINE
 # =============================================================================
 build_data <- function() {
-  message("Building preprocessed data …")
+  message("Building preprocessed data ...")
 
   #  Step 1: Pollutants 
   pollutants_data  <- open_dataset(here("pollutants"))
@@ -302,7 +296,6 @@ plot_confusion_matrix <- function(actual, preds, title = "") {
     scale_x_discrete(position = "top") +
     scale_y_discrete(limits = rev(aqi_levels)) +
     labs(title = title,
-         subtitle = "Each cell = % of true class predicted as that column",
          x = "Predicted class", y = "True (Actual) class", fill = "Recall") +
     theme_minimal()
 }
@@ -374,8 +367,7 @@ xgb_base_params <- list(
   subsample        = XGB_SUBSAMPLE,
   colsample_bytree = XGB_COLSAMPLE,
   eval_metric      = "mlogloss",
-  nthread          = XGB_NTHREAD,
-  seed             = XGB_SEED
+  nthread          = XGB_NTHREAD
 )
 
 fit_xgb <- function(dtrain, nrounds, extra_params, train_data_for_weights,
@@ -431,10 +423,11 @@ polr_summary_table <- function(model) {
 }
 
 #  Partial PO (Partition A only) 
-fit_partial <- function(train_data, partition) {
+fit_partial <- function(train_data, partition, weight_power = ORDINAL_WEIGHT_POWER) {
   train_subset <- train_data %>% select(all_of(c(partition, "AQI_p24")))
   vglm(AQI_p24 ~ ., data = train_subset,
-       family = cumulative(parallel = TRUE ~ -1 + AQI_t2 + PM10))
+       family = cumulative(parallel = TRUE ~ -1 + AQI_t2 + PM10),
+       weights = compute_class_weights_ordinal(train_subset, power = weight_power))
 }
 
 predict_partial <- function(model, test_data, partition) {
@@ -605,11 +598,13 @@ ui <- page_navbar(
             "Ordinal Regression",
             actionButton("btn_train_ord", "Train Ordinal Reg.", class = "btn-primary btn-sm w-100"),
             br(), br(),
-            sliderInput("inp_ord_weight_power", "Weight power", 0.1, 3.0, 0.2, step = 0.1)
+            sliderInput("inp_ord_weight_power", "Weight power", 0.1, 3.0, 0.7, step = 0.1)
           ),
           accordion_panel(
             "Partial PO",
-            actionButton("btn_train_par", "Train Partial PO", class = "btn-primary btn-sm w-100")
+            actionButton("btn_train_par", "Train Partial PO", class = "btn-primary btn-sm w-100"),
+            br(), br(),
+            sliderInput("inp_par_weight_power", "Weight power", 0.1, 3.0, 0.7, step = 0.1)
           ),
           accordion_panel(
             "Multinomial Reg.",
@@ -618,16 +613,6 @@ ui <- page_navbar(
             sliderInput("inp_mul_weight_power", "Weight power", 0.1, 3.0, 0.7, step = 0.1)
           )
         ),
-        hr(),
-
-        #  View Options ─
-        h5("View Options"),
-        selectInput("cmp_model", "Model",
-                    choices = c("Random Forest", "XGBoost", "kNN",
-                                "Ordinal Reg.", "Partial PO", "Multinomial Reg.")),
-        selectInput("cmp_partition", "Partition",
-                    choices = c("A (pollutants)", "B (all features)"),
-                    selected = "B (all features)"),
         hr(),
         p(em("Partial PO is only available for Partition A."), style = "font-size:0.82em; color:#888;")
       ),
@@ -649,7 +634,16 @@ ui <- page_navbar(
         nav_panel("Confusion Matrix",
           card(
             card_header("Confusion Matrix"),
-            plotOutput("plot_cm", height = "480px")
+            layout_columns(
+              col_widths = c(4, 4, 12),
+              selectInput("cmp_model", "Model",
+                          choices = c("Random Forest", "XGBoost", "kNN",
+                                      "Ordinal Reg.", "Partial PO", "Multinomial Reg.")),
+              selectInput("cmp_partition", "Partition",
+                          choices = c("A (pollutants)", "B (all features)"),
+                          selected = "B (all features)"),
+              plotOutput("plot_cm", height = "480px")
+            )
           )
         ),
         nav_panel("Feature Importance",
@@ -714,27 +708,35 @@ ui <- page_navbar(
         sliderInput("inp_tree_maxdepth",  "Max depth",   2,  12, 5,  step = 1),
         numericInput("inp_tree_cp",       "CP",          value = 0.001, min = 0.0001, max = 0.05, step = 0.0005),
         sliderInput("inp_tree_minsplit",  "Min split",   5,  50, 20, step = 5),
-        sliderInput("inp_tree_minbucket", "Min bucket",  2,  20, 7,  step = 1)
+        sliderInput("inp_tree_minbucket", "Min bucket",  2,  20, 7,  step = 1),
+        hr(),
+        checkboxInput("chk_tree_balanced", "Show balanced (weighted) tree", value = FALSE)
       ),
-      layout_columns(
-        col_widths = c(7, 5),
-        card(card_header("Depth vs. RF Agreement & Accuracy"), plotOutput("plot_depth_sweep", height = "360px")),
-        card(
-          card_header("Tree vs. RF metrics"),
-          tableOutput("tbl_tree_metrics")
+      navset_card_tab(
+        nav_panel("Tree Visualization",
+          layout_columns(
+            col_widths = c(12),
+            card(
+              card_header("Decision Tree (Partition B)"),
+              plotOutput("plot_tree", height = "700px")
+            )
+          )
+        ),
+        nav_panel("Metrics & Diagnostics",
+          layout_columns(
+            col_widths = c(7, 5),
+            card(card_header("Depth vs. RF Agreement & Accuracy"), plotOutput("plot_depth_sweep", height = "360px")),
+            card(
+              card_header("Tree vs. RF metrics"),
+              tableOutput("tbl_tree_metrics")
+            )
+          ),
+          layout_columns(
+            col_widths = c(6, 6),
+            card(card_header("Confusion Matrix - Tree (unweighted)"), plotOutput("plot_tree_cm",     height = "340px")),
+            card(card_header("Confusion Matrix - Tree (balanced)"),   plotOutput("plot_tree_cm_bal", height = "340px"))
+          )
         )
-      ),
-      layout_columns(
-        col_widths = c(12),
-        card(
-          card_header("Decision Tree (depth = 5, unweighted)  - Partition B"),
-          plotOutput("plot_tree", height = "560px")
-        )
-      ),
-      layout_columns(
-        col_widths = c(6, 6),
-        card(card_header("Confusion Matrix - Tree (unweighted)"), plotOutput("plot_tree_cm",     height = "340px")),
-        card(card_header("Confusion Matrix - Tree (balanced)"),   plotOutput("plot_tree_cm_bal", height = "340px"))
       )
     )
   ),
@@ -795,16 +797,16 @@ server <- function(input, output, session) {
 
   #  Train RF 
   observeEvent(input$btn_train_rf, {
-    withProgress(message = "Training Random Forest…", value = 0, {
-      setProgress(0.2, detail = "RF A…")
+    withProgress(message = "Training Random Forest...", value = 0, {
+      setProgress(0.2, detail = "RF A...")
       rf_A <- fit_rf(train_data, PARTITION_A,
                      mtry = input$inp_rf_mtry_a, min_node_size = input$inp_rf_min_node_a,
                      num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
-      setProgress(0.55, detail = "RF B…")
+      setProgress(0.55, detail = "RF B...")
       rf_B <- fit_rf(train_data, PARTITION_B,
                      mtry = input$inp_rf_mtry_b, min_node_size = input$inp_rf_min_node_b,
                      num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
-      setProgress(0.85, detail = "RF probability forest…")
+      setProgress(0.85, detail = "RF probability forest...")
       rf_B_prob <- ranger(
         AQI_p24 ~ .,
         data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
@@ -822,22 +824,22 @@ server <- function(input, output, session) {
   #  Train XGBoost 
   observeEvent(input$btn_train_xgb, {
     lp <- local_xgb_params()
-    withProgress(message = "Training XGBoost…", value = 0, {
-      setProgress(0.1, detail = "Building DMatrices…")
+    withProgress(message = "Training XGBoost...", value = 0, {
+      setProgress(0.1, detail = "Building DMatrices...")
       dtrain_A <- create_dmatrix(train_data, PARTITION_A)
       dtrain_B <- create_dmatrix(train_data, PARTITION_B)
       dtest_A  <- create_dmatrix(test_data,  PARTITION_A)
       dtest_B  <- create_dmatrix(test_data,  PARTITION_B)
-      setProgress(0.30, detail = "XGBoost A…")
+      setProgress(0.30, detail = "XGBoost A...")
       xgb_A <- fit_xgb(dtrain_A, input$inp_xgb_nrounds_a,
                         list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = XGB_MIN_CHILD_WEIGHT_A),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
-      setProgress(0.60, detail = "XGBoost B…")
+      setProgress(0.60, detail = "XGBoost B...")
       xgb_B <- fit_xgb(dtrain_B, input$inp_xgb_nrounds_b,
                         list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = XGB_MIN_CHILD_WEIGHT_B),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
-      setProgress(0.82, detail = "Permutation importance…")
-      set.seed(XGB_SEED)
+      setProgress(0.82, detail = "Permutation importance...")
+      set.seed(2026)
       xgb_imp_perm_B <- vi(
         object = xgb_B, method = "permute",
         train = test_data %>% select(all_of(PARTITION_B)),
@@ -854,10 +856,10 @@ server <- function(input, output, session) {
 
   #  Train kNN 
   observeEvent(input$btn_train_knn, {
-    withProgress(message = "Training kNN…", value = 0, {
-      setProgress(0.3, detail = "kNN A…")
+    withProgress(message = "Training kNN...", value = 0, {
+      setProgress(0.3, detail = "kNN A...")
       knn_A <- fit_knn(train_data, test_data, PARTITION_A, input$inp_knn_k_a, KNN_KERNEL_A)
-      setProgress(0.7, detail = "kNN B…")
+      setProgress(0.7, detail = "kNN B...")
       knn_B <- fit_knn(train_data, test_data, PARTITION_B, input$inp_knn_k_b, KNN_KERNEL_B)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(knn_A = knn_A, knn_B = knn_B)))
@@ -866,10 +868,10 @@ server <- function(input, output, session) {
 
   #  Train Ordinal Regression ─
   observeEvent(input$btn_train_ord, {
-    withProgress(message = "Training Ordinal Regression…", value = 0, {
-      setProgress(0.35, detail = "Ordinal A…")
+    withProgress(message = "Training Ordinal Regression...", value = 0, {
+      setProgress(0.35, detail = "Ordinal A...")
       ordinal_A <- fit_ordinal(train_data, PARTITION_A, weight_power = input$inp_ord_weight_power)
-      setProgress(0.75, detail = "Ordinal B…")
+      setProgress(0.75, detail = "Ordinal B...")
       ordinal_B <- fit_ordinal(train_data, PARTITION_B, weight_power = input$inp_ord_weight_power)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(ordinal_A = ordinal_A, ordinal_B = ordinal_B)))
@@ -878,9 +880,9 @@ server <- function(input, output, session) {
 
   #  Train Partial PO 
   observeEvent(input$btn_train_par, {
-    withProgress(message = "Training Partial PO…", value = 0, {
-      setProgress(0.5, detail = "Fitting…")
-      partial_A <- fit_partial(train_data, PARTITION_A)
+    withProgress(message = "Training Partial PO...", value = 0, {
+      setProgress(0.5, detail = "Fitting...")
+      partial_A <- fit_partial(train_data, PARTITION_A, weight_power = input$inp_par_weight_power)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(partial_A = partial_A)))
     })
@@ -888,10 +890,10 @@ server <- function(input, output, session) {
 
   #  Train Multinomial Regression ─
   observeEvent(input$btn_train_mul, {
-    withProgress(message = "Training Multinomial Regression…", value = 0, {
-      setProgress(0.35, detail = "Multinomial A…")
+    withProgress(message = "Training Multinomial Regression...", value = 0, {
+      setProgress(0.35, detail = "Multinomial A...")
       multinomial_A <- fit_multinom(train_data, PARTITION_A, weight_power = input$inp_mul_weight_power)
-      setProgress(0.75, detail = "Multinomial B…")
+      setProgress(0.75, detail = "Multinomial B...")
       multinomial_B <- fit_multinom(train_data, PARTITION_B, weight_power = input$inp_mul_weight_power)
       setProgress(1.0)
       rv_models(modifyList(rv_models(), list(multinomial_A = multinomial_A, multinomial_B = multinomial_B)))
@@ -900,22 +902,22 @@ server <- function(input, output, session) {
 
   #  Train All 
   observeEvent(input$btn_train_all, {
-    withProgress(message = "Training all models…", value = 0, {
+    withProgress(message = "Training all models...", value = 0, {
       lp <- modifyList(xgb_base_params, list(
         eta              = input$inp_xgb_eta,
         subsample        = input$inp_xgb_subsample,
         colsample_bytree = input$inp_xgb_colsample
       ))
 
-      setProgress(0.04, detail = "RF A…")
+      setProgress(0.04, detail = "RF A...")
       rf_A <- fit_rf(train_data, PARTITION_A,
                      mtry = input$inp_rf_mtry_a, min_node_size = input$inp_rf_min_node_a,
                      num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
-      setProgress(0.10, detail = "RF B…")
+      setProgress(0.10, detail = "RF B...")
       rf_B <- fit_rf(train_data, PARTITION_B,
                      mtry = input$inp_rf_mtry_b, min_node_size = input$inp_rf_min_node_b,
                      num_trees = input$inp_rf_num_trees, weight_power = input$inp_rf_weight_power)
-      setProgress(0.16, detail = "RF probability forest…")
+      setProgress(0.16, detail = "RF probability forest...")
       rf_B_prob <- ranger(
         AQI_p24 ~ .,
         data = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
@@ -927,21 +929,21 @@ server <- function(input, output, session) {
       )
       rv_models(modifyList(rv_models(), list(rf_A = rf_A, rf_B = rf_B, rf_B_prob = rf_B_prob)))
 
-      setProgress(0.20, detail = "XGBoost matrices…")
+      setProgress(0.20, detail = "XGBoost matrices...")
       dtrain_A <- create_dmatrix(train_data, PARTITION_A)
       dtrain_B <- create_dmatrix(train_data, PARTITION_B)
       dtest_A  <- create_dmatrix(test_data,  PARTITION_A)
       dtest_B  <- create_dmatrix(test_data,  PARTITION_B)
-      setProgress(0.28, detail = "XGBoost A…")
+      setProgress(0.28, detail = "XGBoost A...")
       xgb_A <- fit_xgb(dtrain_A, input$inp_xgb_nrounds_a,
                         list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = XGB_MIN_CHILD_WEIGHT_A),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
-      setProgress(0.38, detail = "XGBoost B…")
+      setProgress(0.38, detail = "XGBoost B...")
       xgb_B <- fit_xgb(dtrain_B, input$inp_xgb_nrounds_b,
                         list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = XGB_MIN_CHILD_WEIGHT_B),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
-      setProgress(0.46, detail = "XGBoost importance…")
-      set.seed(XGB_SEED)
+      setProgress(0.46, detail = "XGBoost importance...")
+      set.seed(2026)
       xgb_imp_perm_B <- vi(
         object = xgb_B, method = "permute",
         train = test_data %>% select(all_of(PARTITION_B)),
@@ -953,25 +955,25 @@ server <- function(input, output, session) {
         xgb_A = xgb_A, xgb_B = xgb_B, xgb_imp_perm_B = xgb_imp_perm_B
       )))
 
-      setProgress(0.52, detail = "kNN A…")
+      setProgress(0.52, detail = "kNN A...")
       knn_A <- fit_knn(train_data, test_data, PARTITION_A, input$inp_knn_k_a, KNN_KERNEL_A)
-      setProgress(0.57, detail = "kNN B…")
+      setProgress(0.57, detail = "kNN B...")
       knn_B <- fit_knn(train_data, test_data, PARTITION_B, input$inp_knn_k_b, KNN_KERNEL_B)
       rv_models(modifyList(rv_models(), list(knn_A = knn_A, knn_B = knn_B)))
 
-      setProgress(0.62, detail = "Ordinal A…")
+      setProgress(0.62, detail = "Ordinal A...")
       ordinal_A <- fit_ordinal(train_data, PARTITION_A, weight_power = input$inp_ord_weight_power)
-      setProgress(0.67, detail = "Ordinal B…")
+      setProgress(0.67, detail = "Ordinal B...")
       ordinal_B <- fit_ordinal(train_data, PARTITION_B, weight_power = input$inp_ord_weight_power)
       rv_models(modifyList(rv_models(), list(ordinal_A = ordinal_A, ordinal_B = ordinal_B)))
 
-      setProgress(0.74, detail = "Partial PO…")
+      setProgress(0.74, detail = "Partial PO...")
       partial_A <- fit_partial(train_data, PARTITION_A)
       rv_models(modifyList(rv_models(), list(partial_A = partial_A)))
 
-      setProgress(0.82, detail = "Multinomial A…")
+      setProgress(0.82, detail = "Multinomial A...")
       multinomial_A <- fit_multinom(train_data, PARTITION_A, weight_power = input$inp_mul_weight_power)
-      setProgress(0.90, detail = "Multinomial B…")
+      setProgress(0.90, detail = "Multinomial B...")
       multinomial_B <- fit_multinom(train_data, PARTITION_B, weight_power = input$inp_mul_weight_power)
       rv_models(modifyList(rv_models(), list(multinomial_A = multinomial_A, multinomial_B = multinomial_B)))
 
@@ -982,8 +984,8 @@ server <- function(input, output, session) {
   #  Train Trees (Scenario 4) ─
   observeEvent(input$btn_train_sc4, {
     m <- rv_models()
-    withProgress(message = "Training decision trees (Scenario 4)…", value = 0, {
-      setProgress(0.1, detail = "Tree (unweighted)…")
+    withProgress(message = "Training decision trees (Scenario 4)...", value = 0, {
+      setProgress(0.1, detail = "Tree (unweighted)...")
       tree_B <- rpart(
         AQI_p24 ~ .,
         data    = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
@@ -991,7 +993,7 @@ server <- function(input, output, session) {
         control = rpart.control(maxdepth = input$inp_tree_maxdepth, cp = input$inp_tree_cp,
                                 minsplit = input$inp_tree_minsplit, minbucket = input$inp_tree_minbucket)
       )
-      setProgress(0.3, detail = "Tree (balanced prior)…")
+      setProgress(0.3, detail = "Tree (balanced prior)...")
       tree_B_balanced <- rpart(
         AQI_p24 ~ .,
         data    = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
@@ -1000,7 +1002,7 @@ server <- function(input, output, session) {
         control = rpart.control(maxdepth = input$inp_tree_maxdepth, cp = input$inp_tree_cp,
                                 minsplit = input$inp_tree_minsplit, minbucket = input$inp_tree_minbucket)
       )
-      setProgress(0.5, detail = "Depth sweep…")
+      setProgress(0.5, detail = "Depth sweep...")
       # RF predictions are optional — only computed when rf_B is available
       preds_rf_B_for_tree <- if (!is.null(m$rf_B)) predict_rf(m$rf_B, test_data, PARTITION_B)$preds else NULL
       actual_int          <- as.integer(test_data$AQI_p24)
@@ -1176,9 +1178,9 @@ server <- function(input, output, session) {
 
   #  Scenario 3 models (Lasso, Elastic Net, StepAIC) ─
   sc3_models <- eventReactive(input$btn_train_sc3, {
-    withProgress(message = "Feature selection (Scenario 3)…", value = 0, {
+    withProgress(message = "Feature selection (Scenario 3)...", value = 0, {
 
-      setProgress(0.2, detail = "Lasso CV…")
+      setProgress(0.2, detail = "Lasso CV...")
       set.seed(2026)
       cv_lasso <- cv.glmnet(
         as.matrix(train_data %>% select(all_of(PARTITION_B))),
@@ -1190,7 +1192,7 @@ server <- function(input, output, session) {
         type.measure = "class"
       )
 
-      setProgress(0.5, detail = "Elastic Net CV…")
+      setProgress(0.5, detail = "Elastic Net CV...")
       set.seed(2026)
       cv_elnet <- cv.glmnet(
         as.matrix(train_data %>% select(all_of(PARTITION_B))),
@@ -1202,7 +1204,7 @@ server <- function(input, output, session) {
         type.measure = "class"
       )
 
-      setProgress(0.8, detail = "Step backward…")
+      setProgress(0.8, detail = "Step backward...")
       # Refit vglm locally so step4vglm can resolve the data name in this scope
       train_subset <- train_data %>% select(all_of(c(PARTITION_B, "AQI_p24")))
       train_subset$AQI_p24 <- as.factor(as.character(train_subset$AQI_p24))
@@ -1451,8 +1453,7 @@ server <- function(input, output, session) {
     p_xgb_imp <- vip(m$xgb_imp_perm_B, num_features = 22, geom = "col") +
       labs(title = "XGBoost B") + theme_minimal(base_size = 10)
     p_rf_imp + p_xgb_imp +
-      plot_annotation(title    = "Permutation Feature Importance (Partition B)",
-                      subtitle = "Accuracy metric, 5 permutations")
+      plot_annotation(title    = "Permutation Feature Importance (Partition B)")
   })
 
   output$plot_pr <- renderPlot({
@@ -1523,7 +1524,7 @@ server <- function(input, output, session) {
     s4$depth_sweep %>%
       pivot_longer(all_of(metrics_to_plot),
                    names_to = "metric", values_to = "value") %>%
-      mutate(metric = recode(metric,
+      mutate(metric = dplyr::recode(metric,
                              agreement_rf = "Agreement with RF",
                              accuracy     = "Test accuracy")) %>%
       ggplot(aes(maxdepth, value * 100, color = metric)) +
@@ -1565,9 +1566,11 @@ server <- function(input, output, session) {
   output$plot_tree <- renderPlot({
     s4 <- rv_sc4()
     req(!is.null(s4))
-    rpart.plot(s4$tree_B, type = 4, extra = 104, under = TRUE,
-               fallen.leaves = FALSE, cex = 0.65,
-               main = "Decision Tree - Partition B (depth = 5)")
+    use_balanced <- isTRUE(input$chk_tree_balanced)
+    tree_to_show <- if (use_balanced) s4$tree_B_balanced else s4$tree_B
+    tree_label   <- if (use_balanced) "balanced (weighted)" else "unweighted"
+    rpart.plot(tree_to_show, type = 4, extra = 104,  box.palette = list("#50f0e6", "#50ccaa", "#f0e641", "#ff5050"),
+               main = paste0("Decision Tree - Partition B (depth = 5, ", tree_label, ")"))
   })
 
   output$plot_tree_cm <- renderPlot({
