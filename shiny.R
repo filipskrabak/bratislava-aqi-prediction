@@ -581,17 +581,19 @@ ui <- page_navbar(
             sliderInput("inp_xgb_eta",         "Learning rate",  0.01, 0.30, 0.10, step = 0.01),
             sliderInput("inp_xgb_subsample",   "Subsample",      0.5,  1.0,  0.8,  step = 0.1),
             sliderInput("inp_xgb_colsample",   "Col. sample",    0.5,  1.0,  0.8,  step = 0.1),
-            sliderInput("inp_xgb_max_depth_a", "Max depth (A)",  2,    10,   4,    step = 1),
-            sliderInput("inp_xgb_nrounds_a",   "Rounds (A)",     50,   500,  200,  step = 50),
-            sliderInput("inp_xgb_max_depth_b", "Max depth (B)",  2,    10,   6,    step = 1),
-            sliderInput("inp_xgb_nrounds_b",   "Rounds (B)",     50,   500,  200,  step = 50),
+            sliderInput("inp_xgb_max_depth_a",       "Max depth (A)",       2,   10,  5,  step = 1),
+            sliderInput("inp_xgb_min_child_weight_a", "Min child weight (A)", 1,   30, 10,  step = 1),
+            sliderInput("inp_xgb_nrounds_a",          "Rounds (A)",          50,  500, 100, step = 50),
+            sliderInput("inp_xgb_max_depth_b",        "Max depth (B)",       2,   10,  6,  step = 1),
+            sliderInput("inp_xgb_min_child_weight_b", "Min child weight (B)", 1,   30, 10,  step = 1),
+            sliderInput("inp_xgb_nrounds_b",          "Rounds (B)",          50,  500, 100, step = 50),
             sliderInput("inp_xgb_weight_power", "Weight power",  0.1,  3.0,  0.8,  step = 0.1)
           ),
           accordion_panel(
             "kNN",
             actionButton("btn_train_knn", "Train kNN", class = "btn-primary btn-sm w-100"),
             br(), br(),
-            sliderInput("inp_knn_k_a", "k (Part. A)", 5, 80, 30, step = 5),
+            sliderInput("inp_knn_k_a", "k (Part. A)", 5, 80, 26, step = 5),
             sliderInput("inp_knn_k_b", "k (Part. B)", 5, 80, 20, step = 5)
           ),
           accordion_panel(
@@ -710,7 +712,8 @@ ui <- page_navbar(
         sliderInput("inp_tree_minsplit",  "Min split",   5,  50, 20, step = 5),
         sliderInput("inp_tree_minbucket", "Min bucket",  2,  20, 7,  step = 1),
         hr(),
-        checkboxInput("chk_tree_balanced", "Show balanced (weighted) tree", value = FALSE)
+        checkboxInput("chk_tree_balanced", "Show balanced (weighted) tree", value = FALSE),
+        checkboxInput("chk_depth_sweep", "Depth sweep", value = FALSE)
       ),
       navset_card_tab(
         nav_panel("Tree Visualization",
@@ -774,6 +777,12 @@ ui <- page_navbar(
 # =============================================================================
 # SERVER
 # =============================================================================
+# Helper: draw a grey placeholder when data is not yet available
+placeholder_plot <- function(msg) {
+  plot.new()
+  text(0.5, 0.5, msg, cex = 1.2, col = "grey50", adj = 0.5)
+}
+
 server <- function(input, output, session) {
 
   #  Model store 
@@ -832,11 +841,11 @@ server <- function(input, output, session) {
       dtest_B  <- create_dmatrix(test_data,  PARTITION_B)
       setProgress(0.30, detail = "XGBoost A...")
       xgb_A <- fit_xgb(dtrain_A, input$inp_xgb_nrounds_a,
-                        list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = XGB_MIN_CHILD_WEIGHT_A),
+                        list(max_depth = input$inp_xgb_max_depth_a, min_child_weight = input$inp_xgb_min_child_weight_a),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.60, detail = "XGBoost B...")
       xgb_B <- fit_xgb(dtrain_B, input$inp_xgb_nrounds_b,
-                        list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = XGB_MIN_CHILD_WEIGHT_B),
+                        list(max_depth = input$inp_xgb_max_depth_b, min_child_weight = input$inp_xgb_min_child_weight_b),
                         train_data, base_params = lp, weight_power = input$inp_xgb_weight_power)
       setProgress(0.82, detail = "Permutation importance...")
       set.seed(2026)
@@ -1006,26 +1015,30 @@ server <- function(input, output, session) {
       # RF predictions are optional — only computed when rf_B is available
       preds_rf_B_for_tree <- if (!is.null(m$rf_B)) predict_rf(m$rf_B, test_data, PARTITION_B)$preds else NULL
       actual_int          <- as.integer(test_data$AQI_p24)
-      depth_sweep <- tibble(maxdepth = 2:12) %>%
-        mutate(
-          fit = map(maxdepth, ~ rpart(
-            AQI_p24 ~ .,
-            data    = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
-            method  = "class",
-            control = rpart.control(maxdepth = .x, cp = input$inp_tree_cp,
-                                    minsplit = input$inp_tree_minsplit, minbucket = input$inp_tree_minbucket)
-          )),
-          preds_tree = map(fit, ~ as.integer(
-            predict(.x, newdata = test_data %>% select(all_of(PARTITION_B)), type = "class")
-          )),
-          agreement_rf = if (!is.null(preds_rf_B_for_tree))
-                           map_dbl(preds_tree, ~ mean(.x == preds_rf_B_for_tree))
-                         else
-                           NA_real_,
-          accuracy     = map_dbl(preds_tree, ~ mean(.x == actual_int)),
-          n_leaves     = map_int(fit, ~ sum(.x$frame$var == "<leaf>"))
-        ) %>%
-        select(-fit, -preds_tree)
+      depth_sweep <- if (isTRUE(input$chk_depth_sweep)) {
+        tibble(maxdepth = 2:12) %>%
+          mutate(
+            fit = map(maxdepth, ~ rpart(
+              AQI_p24 ~ .,
+              data    = train_data %>% select(all_of(c(PARTITION_B, "AQI_p24"))),
+              method  = "class",
+              control = rpart.control(maxdepth = .x, cp = input$inp_tree_cp,
+                                      minsplit = input$inp_tree_minsplit, minbucket = input$inp_tree_minbucket)
+            )),
+            preds_tree = map(fit, ~ as.integer(
+              predict(.x, newdata = test_data %>% select(all_of(PARTITION_B)), type = "class")
+            )),
+            agreement_rf = if (!is.null(preds_rf_B_for_tree))
+                             map_dbl(preds_tree, ~ mean(.x == preds_rf_B_for_tree))
+                           else
+                             NA_real_,
+            accuracy     = map_dbl(preds_tree, ~ mean(.x == actual_int)),
+            n_leaves     = map_int(fit, ~ sum(.x$frame$var == "<leaf>"))
+          ) %>%
+          select(-fit, -preds_tree)
+      } else {
+        NULL
+      }
       setProgress(1.0)
       rv_sc4(list(
         tree_B              = tree_B,
@@ -1237,7 +1250,7 @@ server <- function(input, output, session) {
 
     sc3_metrics <- bind_rows(
       baseline_metrics,
-      compute_metrics(preds_step,  actual_sc3) %>% mutate(Method = "StepAIC backward"),
+      compute_metrics(preds_step,  actual_sc3) %>% mutate(Method = "Step backward"),
       compute_metrics(preds_lasso, actual_sc3) %>% mutate(Method = "Lasso lambda.1se"),
       compute_metrics(preds_elnet, actual_sc3) %>% mutate(Method = "Elastic Net lambda.1se")
     ) %>% select(Method, everything())
@@ -1248,7 +1261,7 @@ server <- function(input, output, session) {
 
     sc3_recall <- bind_rows(
       baseline_recall,
-      compute_class_recall(preds_step,  actual_sc3) %>% mutate(Method = "StepAIC"),
+      compute_class_recall(preds_step,  actual_sc3) %>% mutate(Method = "Step"),
       compute_class_recall(preds_lasso, actual_sc3) %>% mutate(Method = "Lasso"),
       compute_class_recall(preds_elnet, actual_sc3) %>% mutate(Method = "Elastic Net")
     ) %>% mutate(Label = factor(Label, levels = aqi_levels))
@@ -1397,7 +1410,7 @@ server <- function(input, output, session) {
 
   output$plot_f1_bar <- renderPlot({
     s <- summaries()
-    req(!is.null(s))
+    if (is.null(s)) { placeholder_plot("Train models to see this chart."); return() }
     summary_table <- s$summary_table
     method_order <- summary_table %>%
       group_by(Method) %>%
@@ -1420,7 +1433,7 @@ server <- function(input, output, session) {
 
   output$plot_recall_heat <- renderPlot({
     s <- summaries()
-    req(!is.null(s))
+    if (is.null(s)) { placeholder_plot("Train models to see this chart."); return() }
     recall_long <- s$recall_long
     model_order <- recall_long %>%
       filter(Label == "Poor") %>%
@@ -1438,8 +1451,8 @@ server <- function(input, output, session) {
   })
 
   output$plot_cm <- renderPlot({
-    req(selected_preds())
     p <- selected_preds()
+    if (is.null(p)) { placeholder_plot("Train the selected model to see the confusion matrix."); return() }
     mdl_name <- paste0(input$cmp_model, " (",
                        if (grepl("A", input$cmp_partition)) "A" else "B", ")")
     plot_confusion_matrix(p$actual, p$preds, mdl_name)
@@ -1447,7 +1460,7 @@ server <- function(input, output, session) {
 
   output$plot_imp <- renderPlot({
     m <- rv_models()
-    req(!is.null(m$rf_B), !is.null(m$xgb_imp_perm_B))
+    if (is.null(m$rf_B) || is.null(m$xgb_imp_perm_B)) { placeholder_plot("Train Random Forest and XGBoost to see feature importance."); return() }
     p_rf_imp  <- vip(m$rf_B, num_features = 22, geom = "col") +
       labs(title = "Random Forest B") + theme_minimal(base_size = 10)
     p_xgb_imp <- vip(m$xgb_imp_perm_B, num_features = 22, geom = "col") +
@@ -1458,7 +1471,7 @@ server <- function(input, output, session) {
 
   output$plot_pr <- renderPlot({
     s <- summaries()
-    req(!is.null(s), !is.null(s$pr_df))
+    if (is.null(s) || is.null(s$pr_df)) { placeholder_plot("Train models to see precision-recall curves."); return() }
     ggplot(s$pr_df, aes(recall, precision, color = model)) +
       geom_line(linewidth = 0.9) +
       geom_hline(yintercept = s$pr_prevalence, linetype = "dashed", color = "grey60") +
@@ -1481,7 +1494,7 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE)
 
   output$plot_sc3_recall <- renderPlot({
-    req(sc3_data())
+    if (is.null(sc3_data())) { placeholder_plot("Run Feature Selection to see this chart."); return() }
     sc3_data()$sc3_recall %>%
       ggplot(aes(Label, `Recall (%)`, fill = Method)) +
       geom_col(position = "dodge") +
@@ -1502,14 +1515,14 @@ server <- function(input, output, session) {
   }, striped = TRUE, hover = TRUE)
 
   output$plot_lasso_cv <- renderPlot({
-    req(sc3_data())
+    if (is.null(sc3_data())) { placeholder_plot("Run Feature Selection to see this chart."); return() }
     cv_lasso <- sc3_data()$cv_lasso
     plot(cv_lasso)
     title("Lasso - CV misclassification vs. log(lambda)", line = 2.5)
   })
 
   output$plot_elnet_cv <- renderPlot({
-    req(sc3_data())
+    if (is.null(sc3_data())) { placeholder_plot("Run Feature Selection to see this chart."); return() }
     cv_elnet <- sc3_data()$cv_elnet
     plot(cv_elnet)
     title("Elastic Net - CV misclassification vs. log(lambda)", line = 2.5)
@@ -1519,6 +1532,12 @@ server <- function(input, output, session) {
   output$plot_depth_sweep <- renderPlot({
     s4 <- rv_sc4()
     req(!is.null(s4))
+    if (is.null(s4$depth_sweep)) {
+      plot.new()
+      text(0.5, 0.5, "Enable \"Depth sweep\" and retrain to see this plot.",
+           cex = 1.2, col = "grey50")
+      return()
+    }
     has_rf <- !all(is.na(s4$depth_sweep$agreement_rf))
     metrics_to_plot <- if (has_rf) c("agreement_rf", "accuracy") else "accuracy"
     s4$depth_sweep %>%
