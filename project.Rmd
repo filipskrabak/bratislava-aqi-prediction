@@ -2110,12 +2110,12 @@ library(glmnet)
 
 LASSO_ALPHA <- 1.0 # pure L1 penalty (Lasso)
 ELNET_ALPHA <- 0.5 # 50/50 L1+L2 blend (Elastic Net)
-GLMNET_NFOLDS <- 5 # folds for cross-validated lambda selection
+GLMNET_NFOLDS <- 10 # folds for cross-validated lambda selection
 ```
 
 ### Lasso
 
-Lambda is selected by 10-fold cross-validation. Both the min lambda and 1-SE lambda are computed and showcase on the plot. For evaulation, we will use 1-SE lambda as it picks simpler model within one standard error of minimum. The plotted lambdas showcases that the 1-SE lambda keeps 17 features in the model, while minimal does 20. This does not mean the model will only retain 17 predictors because as we do multinomial regression and estimating coefficent for each class separately, some predictors can be included in one class estimation and not in others.
+Lambda is selected by 10-fold cross-validation. Both the min lambda and 1-SE lambda are computed and showcase on the plot. For evaulation, we will use 1-SE lambda as it picks simpler model within one standard error of minimum. The plotted lambdas showcases that the 1-SE lambda keeps 17 features in the model, while minimal does 21. This does not mean the model will only retain 17 predictors because as we do multinomial regression and estimating coefficent for each class separately, some predictors can be included in one class estimation and not in others. The numbers 17 and 21 are calculated median for how many parameters were retained at that point across all classes.
 
 ```{r}
 set.seed(2026)
@@ -2168,7 +2168,7 @@ cat("Features retained:", length(attr(terms(multinom_step_B), "term.labels")), "
 ```
 
 ### Feature retention table
-Summary table that showcase all the features and if they were kept across feature selection methods. In the case of this dataset and predicting AQI, all of the features were kept in the models, except in pure Lasso regression, where variable Weather_Code was removed.
+Summary table that showcase all the features and if they were kept across feature selection methods. In the case of this dataset and predicting AQI, all of the features were kept in the models for every feature selection method.
 
 ```{r}
 extract_kept_features <- function(cv_model, s = "lambda.1se") {
@@ -2202,7 +2202,7 @@ print(feature_selection_table, n=22)
 ```
 
 ### Performance comparison
-Comparing performances, we can see that Lasso and Elasticnet methods perform worse on most of the metrics. The stepAIC backward model did keep all of the features, making it identical to the default multinomial model.
+Comparing performances, we can see that Lasso and Elasticnet methods perform better on all metrics. The stepAIC backward model did keep all of the features, making it identical to the default multinomial model.
 
 ```{r}
 test_mat <- as.matrix(test_data %>% select(all_of(PARTITION_B)))
@@ -2225,7 +2225,7 @@ feature_selection_metrics
 ```
 
 #### Per-class recall
-The biggest difference is that the penalized models very poorly classified the Good category compared to the default multinomial model. It performed worst on the Poor category too, the only improvement can be seen in Fair one which does not provide any meaningful value.
+The biggest difference is that the penalized model classified the Good category worse compared to the default multinomial model. For every other category, the Lasso and Elastic net performed better. Those two models are almost eqvivalent in performance, Elastic net has better macro F1 and worse Poor recall and lasso vice versa.
 ```{r}
 feature_selection_recall <- bind_rows(
   compute_class_recall(preds_multinom_B, actual) %>% mutate(Method = "Multinomial B"),
@@ -2250,13 +2250,13 @@ ggplot(aes(x = Label, y = `Recall (%)`, fill = Method)) +
 
 ### Interpretation
 
-The Lasso method was the only method that removed predictor, in this case it was Weather_Code variable. The one possible reason could be that the variable is already explained by other weather conditions like rain, snowfall or cloud coverage and hence is dropped by Lasso regression. The Elastic Net method kept all the features.
+All of the feature selection methods kept every predictor, even though analysing coefficients from Lasso and Elastic net can tell us what features were important for what class. It showcase that some predictors do not have impact on all classes, supporting the argument why partial PO models had problems converging.
 
 The wrapper method, backward step selection, did also keep all the variables, making the model same as the multinomial B model. All of these methods suggest that the picked predictors are useful and provide new information about AQI.
 
-The performance was not increased in any meaningful way. The step model was in the end same as the base multinomial model and the Lasso and Elastic Net performed worse, mainly on Good class but all the others too, except the Fair class which does not add any meaningful value.
+The performance was increased very slightly, Lasso and Elastic net models being more performative on both macro F1 and Poor recall. The step model was in the end same as the base multinomial model.
 
-The feature set should be kept as it is, with all the features present in each model. The preliminary feature selection was based on domain knowledge and filter methods like VIF. The embedded and wrapper methods did not showcase any major improvement, just confirmed that predictor subset was picked correctly and every variable does provide meaningful information to the prediction.
+The feature set should be kept as it is, with all the features present in each model. The preliminary feature selection was based on domain knowledge and filter methods like VIF. The embedded and wrapper methods did not showcase any major changes, just confirmed that predictor subset was picked correctly and every variable does provide meaningful information to the prediction.
 
 ## Scenario 4 - Tree And Heatmap Visualizations (vs. Models)
 
