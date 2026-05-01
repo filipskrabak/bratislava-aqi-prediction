@@ -21,7 +21,7 @@ library(pROC)
 library(PRROC)
 library(patchwork)
 library(scales)
-library(car)      # poTest (via performance/brant)
+library(car)
 library(fable)
 library(feasts)
 
@@ -117,7 +117,7 @@ build_data <- function() {
     mutate(across(c(SO2, PM10, O3, NO2, `PM2.5`),
                   ~ zoo::na.approx(., na.rm = FALSE, maxgap = 3)))
 
-  #  Step 2: Weather ─
+  #  Step 2: Weather 
   weather_file_path <- here("weather", "open-meteo-48.12N17.10E163m.csv")
 
   weather_data <- read_csv(weather_file_path, skip = 3, show_col_types = FALSE) %>%
@@ -160,7 +160,7 @@ build_data <- function() {
               Soil_Moisture_7_28, Soil_Moisture_28_100, Soil_Moisture_100_255,
               Surface_Pressure, Apparent_Temp, Snow_Depth, ET0))
 
-  #  Step 3: Merge + AQI labels ─
+  # Step 3: Merge + AQI labels 
   merged_data <- as_tibble(clean_air_data) %>%
     inner_join(weather_data, by = "Start")
 
@@ -304,7 +304,7 @@ plot_confusion_matrix <- function(actual, preds, title = "") {
 # MODEL FITTING FUNCTIONS
 # =============================================================================
 
-#  Class weights ─
+#  Class weights 
 compute_class_weights_rf <- function(train_data, power = RF_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
   weights <- (1 / as.numeric(class_counts))^power
@@ -332,7 +332,7 @@ compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WE
   w_per_row / sum(w_per_row, na.rm = TRUE) * nrow(train_data)
 }
 
-#  Random Forest ─
+#  Random Forest 
 fit_rf <- function(train_data, partition, mtry = NULL, min_node_size = 1,
                    weighted = TRUE, num_trees = RF_NUM_TREES,
                    weight_power = RF_WEIGHT_POWER) {
@@ -352,7 +352,7 @@ predict_rf <- function(model, test_data, partition) {
   list(actual = actual, preds = preds)
 }
 
-#  XGBoost ─
+#  XGBoost 
 create_dmatrix <- function(data, partition) {
   X <- data %>% select(all_of(partition)) %>% as.matrix()
   y <- as.integer(data$AQI_p24) - 1L
@@ -387,7 +387,7 @@ predict_xgb <- function(model, dtest, test_data) {
   list(actual = actual, preds = preds)
 }
 
-#  kNN ─
+#  kNN 
 fit_knn <- function(train_data, test_data, partition, k, kernel) {
   train_sub <- train_data %>% select(all_of(c(partition, "AQI_p24")))
   test_sub  <- test_data  %>% select(all_of(c(partition, "AQI_p24")))
@@ -499,7 +499,6 @@ aqi_drivers <- complete_data %>%
     )
   )
 
-# XGB prediction wrapper (defined globally so reactives can use it)
 xgb_pred_wrapper <- function(object, newdata) {
   dm    <- xgb.DMatrix(as.matrix(newdata))
   preds <- as.integer(predict(object, dm)) + 1L
@@ -524,7 +523,7 @@ ui <- page_navbar(
         layout_columns(
           col_widths = c(7, 5),
           card(
-            card_header("Weekly Average AQI (2017–2024)"),
+            card_header("Weekly Average AQI (2017-2024)"),
             plotOutput("plot_ts", height = "420px")
           ),
           layout_columns(
@@ -566,7 +565,7 @@ ui <- page_navbar(
                      class = "btn-success w-100", icon = icon("play")),
         hr(),
 
-        #  Individual model training ─
+        #  Individual model training 
         h6(strong("Individual Models")),
         accordion(
           open = FALSE,
@@ -697,15 +696,15 @@ ui <- page_navbar(
         nav_panel("CV Lambda Curves",
           layout_columns(
             col_widths = c(6, 6),
-            card(card_header("Lasso — CV misclassification vs. log(λ)"),     plotOutput("plot_lasso_cv",  height = "420px")),
-            card(card_header("Elastic Net — CV misclassification vs. log(λ)"), plotOutput("plot_elnet_cv", height = "420px"))
+            card(card_header("Lasso - CV misclassification vs. log(λ)"),     plotOutput("plot_lasso_cv",  height = "420px")),
+            card(card_header("Elastic Net - CV misclassification vs. log(λ)"), plotOutput("plot_elnet_cv", height = "420px"))
           )
         )
       )
     )
   ),
 
-  #  Tab 4: Scenario 4 - Decision Trees ─
+  #  Tab 4: Scenario 4 - Decision Trees 
   nav_panel("Scenario 4: Decision Trees",
     layout_sidebar(
       sidebar = sidebar(
@@ -784,7 +783,6 @@ ui <- page_navbar(
 # =============================================================================
 # SERVER
 # =============================================================================
-# Helper: draw a grey placeholder when data is not yet available
 placeholder_plot <- function(msg) {
   plot.new()
   text(0.5, 0.5, msg, cex = 1.2, col = "grey50", adj = 0.5)
@@ -882,7 +880,7 @@ server <- function(input, output, session) {
     })
   })
 
-  #  Train Ordinal Regression ─
+  #  Train Ordinal Regression 
   observeEvent(input$btn_train_ord, {
     withProgress(message = "Training Ordinal Regression...", value = 0, {
       setProgress(0.35, detail = "Ordinal A...")
@@ -904,7 +902,7 @@ server <- function(input, output, session) {
     })
   })
 
-  #  Train Multinomial Regression ─
+  #  Train Multinomial Regression 
   observeEvent(input$btn_train_mul, {
     withProgress(message = "Training Multinomial Regression...", value = 0, {
       setProgress(0.35, detail = "Multinomial A...")
@@ -997,7 +995,7 @@ server <- function(input, output, session) {
     })
   })
 
-  #  Train Trees (Scenario 4) ─
+  #  Train Trees (Scenario 4) 
   observeEvent(input$btn_train_sc4, {
     m <- rv_models()
     withProgress(message = "Training decision trees (Scenario 4)...", value = 0, {
@@ -1019,7 +1017,7 @@ server <- function(input, output, session) {
                                 minsplit = input$inp_tree_minsplit, minbucket = input$inp_tree_minbucket)
       )
       setProgress(0.5, detail = "Depth sweep...")
-      # RF predictions are optional — only computed when rf_B is available
+      # RF predictions are optional - only computed when rf_B is available
       preds_rf_B_for_tree <- if (!is.null(m$rf_B)) predict_rf(m$rf_B, test_data, PARTITION_B)$preds else NULL
       actual_int          <- as.integer(test_data$AQI_p24)
       depth_sweep <- if (isTRUE(input$chk_depth_sweep)) {
@@ -1057,7 +1055,7 @@ server <- function(input, output, session) {
     })
   })
 
-  #  all_preds: builds predictions from whatever models are currently trained ─
+  # all_preds: builds predictions from whatever models are currently trained 
   all_preds <- reactive({
     m <- rv_models()
     result <- list()
@@ -1087,7 +1085,7 @@ server <- function(input, output, session) {
     result
   })
 
-  #  summaries: builds tables + PR curve from all available predictions 
+  # summaries: builds tables + PR curve from all available predictions 
   summaries <- reactive({
     p <- all_preds()
     if (length(p) == 0) return(NULL)
@@ -1196,7 +1194,7 @@ server <- function(input, output, session) {
     )
   })
 
-  #  Scenario 3 models (Lasso, Elastic Net, StepAIC) ─
+  # Scenario 3 models (Lasso, Elastic Net, StepAIC) 
   sc3_models <- eventReactive(input$btn_train_sc3, {
     withProgress(message = "Feature selection (Scenario 3)...", value = 0, {
 
@@ -1225,7 +1223,6 @@ server <- function(input, output, session) {
       )
 
       setProgress(0.8, detail = "Step backward...")
-      # Refit vglm locally so step4vglm can resolve the data name in this scope
       train_subset <- train_data %>% select(all_of(c(PARTITION_B, "AQI_p24")))
       train_subset$AQI_p24 <- as.factor(as.character(train_subset$AQI_p24))
       multinom_B_local <- vglm(AQI_p24 ~ ., data = train_subset,
@@ -1354,7 +1351,7 @@ server <- function(input, output, session) {
       gg_subseries(AQI) +
       scale_y_continuous(breaks = 1:4, labels = aqi_levels, limits = c(1, 4)) +
       labs(y = "Mean Monthly AQI", x = "Month",
-           title = "Seasonal plot — monthly AQI by year (2017–2024)") +
+           title = "Seasonal plot - monthly AQI by year (2017–2024)") +
       theme_minimal(base_size = 12)
   })
 
@@ -1591,7 +1588,7 @@ server <- function(input, output, session) {
     bind_rows(
       rf_row,
       compute_metrics(preds_tree_B,   s4$actual_int) %>% mutate(Model = "Tree (unweighted)"),
-      compute_metrics(preds_tree_bal, s4$actual_int) %>% mutate(Model = "Tree (balanced prior)")
+      compute_metrics(preds_tree_bal, s4$actual_int) %>% mutate(Model = "Tree (balanced)")
     ) %>% select(Model, everything())
   }, striped = TRUE)
 
@@ -1616,10 +1613,10 @@ server <- function(input, output, session) {
     s4 <- rv_sc4()
     req(!is.null(s4))
     preds_tree_bal <- as.integer(predict(s4$tree_B_balanced, newdata = test_data %>% select(all_of(PARTITION_B)), type = "class"))
-    plot_confusion_matrix(s4$actual_int, preds_tree_bal, "Confusion Matrix: Tree (balanced prior)")
+    plot_confusion_matrix(s4$actual_int, preds_tree_bal, "Confusion Matrix: Tree (balanced)")
   })
 
-  #  Tab 5: Prediction Lookup 
+  # Tab 5: Prediction Lookup 
   prediction_results <- eventReactive(input$btn_predict, {
     m <- rv_models()
     req(!is.null(m$xgb_A))
