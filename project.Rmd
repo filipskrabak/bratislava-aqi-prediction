@@ -52,7 +52,7 @@ This requires us to merge two datasets - the pollutants dataset and the weather 
 
 ## Project Hypothesis:
 
-Current and lagged pollutant concentrations, combined with concurrent weather conditions, carry sufficient information to classify the AQI 24 hours ahead in Bratislava with Macro F1 meaningfully above a persistence baseline, with emphasis on correctly identifying the minority Poor class. Weather features provide additional predictive value beyond pollutants alone.
+Current pollutant concentrations and lagged AQI values, combined with concurrent weather conditions, carry sufficient information to classify the AQI 24 hours ahead in Bratislava with Macro F1 meaningfully above a persistence baseline, with emphasis on correctly identifying the minority Poor class. Weather features provide additional predictive value beyond pollutants alone.
 
 # Pollutants Dataset
 
@@ -2263,7 +2263,7 @@ library(rpart)
 library(rpart.plot)
 
 TREE_MAXDEPTH  <- 5 # max depth of the tree
-TREE_CP <- 0.001 # complexity parameter: min relative improvement per split
+TREE_CP <- 0.001 # complexity parameter (min relative improvement per split)
 TREE_MINSPLIT <- 20 # min obs in a node to attempt a split
 TREE_MINBUCKET <- 7 # min obs in any terminal leaf
 
@@ -2317,7 +2317,7 @@ tibble(
 - AQI_t - This is the root split, which confirms the strong lag-1 autocorrelation from our EDA
 - AQI_t1, AQI_t2, AQI_t24 - These lags are not used, likely because they are highly correlated with AQI_t and do not provide additional information for splits.
 - Pressure_MSL again appears just like in other models, where it was explained
-- Dew_Point, PM25, O3, Soil_Moisture_0_7, Wind_Speed - these appear at deeper nodes.
+- Dew_Point, PM25, O3, Soil_Moisture_0_7, Wind_Speed - these appear in the tree
 - Cloud cover variables, Rain, Snowfall, Weather_Code, hour, NO2, SO2, Wind_Direction - they either carry little additional information, or that signal is already captured by other features
 
 #### How deep should the tree be?
