@@ -522,21 +522,28 @@ ui <- page_navbar(
     navset_card_tab(
       nav_panel("Overview",
         layout_columns(
-          col_widths = c(12),
+          col_widths = c(7, 5),
           card(
             card_header("Weekly Average AQI (2017–2024)"),
-            plotOutput("plot_ts", height = "280px")
+            plotOutput("plot_ts", height = "420px")
+          ),
+          layout_columns(
+            col_widths = c(12, 12),
+            card(card_header("Class Distribution"),    plotOutput("plot_dist", height = "190px")),
+            card(card_header("AQI Drivers by Class"),  plotOutput("plot_corr", height = "190px"))
           )
-        ),
-        layout_columns(
-          col_widths = c(4, 4, 4),
-          card(card_header("Class Distribution"),  plotOutput("plot_dist",    height = "260px")),
-          card(card_header("Monthly AQI by Year (Seasonal)"), plotOutput("plot_heatmap", height = "260px")),
-          card(card_header("AQI Drivers by Class"), plotOutput("plot_corr", height = "340px"))
-        ),
+        )
+      ),
+      nav_panel("Monthly AQI by Year",
+        card(
+          card_header("Monthly AQI by Year (Seasonal)"),
+          plotOutput("plot_heatmap", height = "420px")
+        )
+      ),
+      nav_panel("Pollutant Distributions",
         card(
           card_header("Pollutant Distributions by AQI Class"),
-          plotOutput("plot_boxplots", height = "320px")
+          plotOutput("plot_boxplots", height = "420px")
         )
       ),
       nav_panel("STL Decomposition",
@@ -1302,7 +1309,6 @@ server <- function(input, output, session) {
       scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
       scale_y_continuous(breaks = 1:4, labels = aqi_levels, limits = c(1, 4)) +
       labs(title = "Weekly average AQI (2017-2024)",
-           subtitle = "Red line = LOESS trend",
            x = NULL, y = "AQI level") +
       theme_minimal(base_size = 12)
   })
@@ -1320,13 +1326,20 @@ server <- function(input, output, session) {
   })
 
   output$plot_dist <- renderPlot({
-    model_features %>%
-      count(AQI_t) %>%
-      mutate(Label = factor(aqi_levels[AQI_t], levels = aqi_levels)) %>%
+    complete_data %>%
+      as_tibble() %>%
+      filter(!is.na(AQI)) %>%
+      count(AQI) %>%
+      mutate(
+        Label = factor(aqi_levels[AQI], levels = aqi_levels),
+        pct   = n / sum(n)
+      ) %>%
       ggplot(aes(Label, n, fill = Label)) +
       geom_col() +
+      geom_text(aes(label = scales::percent(pct, accuracy = 0.1)),
+                vjust = -0.4, size = 3.5) +
       scale_fill_manual(values = aqi_colors) +
-      scale_y_continuous(labels = scales::comma) +
+      scale_y_continuous(labels = scales::comma, expand = expansion(mult = c(0, 0.1))) +
       labs(x = NULL, y = "Hours") +
       theme_minimal() +
       theme(legend.position = "none")
