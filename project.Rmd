@@ -3,8 +3,8 @@ title: "AQI Prediction - Elements of AI Capstone Project"
 author: "Filip Škrabák & Patrik Prizbul"
 date: "2026-03-15"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 editor_options:
   markdown:
     wrap: sentence
@@ -777,7 +777,7 @@ We report per-class recall in every evaluation to make this limitation transpare
 To see possible multicollinearity and relationships between main predictors, we use the pairs plot.
 A random sample of 3 000 rows is used (due to performance). We chose a a subset of variables from the dataset, which to our knowledge should be the most important for predicting AQI.
 
-```{r}
+```{r pairs, warning=FALSE}
 # correlation on upper panels
 panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...) {
   usr <- par("usr"); on.exit(par(usr))
@@ -1846,7 +1846,7 @@ The multinomial logistic regression assumes that the log-odds of each class vs t
 
 We check all continuous predictors in `PARTITION_B` for this assumption. We exclude some variables that are not suitable for this check, such as `Rain` and `Snowfall` which are heavily zero-inflated, `Weather_Code` which is categorical, and `hour` and `month` which are cyclic.
 
-```{r}
+```{r warning=FALSE}
 skip_vars <- c("Rain", "Snowfall", "Weather_Code", "hour", "month")
 continuous_vars_check <- setdiff(PARTITION_B, skip_vars)
 
@@ -2070,7 +2070,7 @@ RF and XGBoost are the strongest predictors for the Poor class, substantially ab
 **Scenario 1 - Models across 2 feature space partitions**
 Across all three model families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice.
 
-Features that matter in both families, such as pollutants, lagged AQI and weather variables like pressure, were highly useful for AQI predictions. Non-parametric models expose this through permutation importance, while with parametric models it can be analyzed by looking at the coefficients and statistical significance, noting that some assumptions are violated in this dataset. An interesting variable is Snowfall, as the dataset contains very few hours with recorded snowfall. Parametric models interpret this as highly influential parameter, while the non-parametric models have it as one of the lowest important features.
+Features that matter in both families, such as pollutants, lagged AQI and weather variables like pressure, were highly useful for AQI predictions. Non-parametric models expose this through permutation importance, while with parametric models it can be analyzed by looking at the coefficients and statistical significance, noting that some assumptions are violated in this dataset. An interesting variable is Snowfall, as the dataset contains very few hours with recorded snowfall. Parametric models interpret this as a highly influential parameter, while the non-parametric models have it as one of the lowest important features.
 
 **Scenario 2 - Parametric vs. Non-parametric models**
 Non-parametric models (RF and XGBoost) offer the highest macro F1 scores and they are the best options based on the PR curves, mainly because they capture non-linear relationships between predictors and AQI. Feature evaluation is possible by using permutation importance. When it comes to the reproducibility, all the non-parametric methods are based on randomness (stochastic) in some way, making the results always different (without explicitly setting seed).
@@ -2517,7 +2517,7 @@ recall_comparison %>%
 
 - The weighted RF achieves the best macro F1 (0.467) by combining 500 trees with inverse-frequency weights, recovering minority-class recall without totally sacrificing majority-class precision.
 
-A single tree of any depth agrees with the RF on at most ~78% of test cases. The remaining 22% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
+A single tree of any depth agrees with the RF on at most ~81% of test cases. The remaining 19% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
 
 # Conclusion
 
