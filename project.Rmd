@@ -24,13 +24,15 @@ packages <- c(
   "tseries", # for adf.test
   "MASS", #ordinal regression polr()
   "ranger", "pROC",
-  "performance", "brant", "knitr", "scales", "xgboost", "kknn", "vip"
+  "performance", "brant", "knitr", "scales", "xgboost", "kknn", "vip",
+  "car", "VGAM", "patchwork", "PRROC", "glmnet",
+  "rpart", "rpart.plot"
 )
 
-#missing_packages <- setdiff(packages, rownames(installed.packages()))
-#if (length(missing_packages) > 0) {
-#  install.packages(missing_packages, repos = "https://cran.rstudio.com", dependencies = TRUE)
-#}
+missing_packages <- setdiff(packages, rownames(installed.packages()))
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cran.rstudio.com", dependencies = TRUE)
+}
 
 invisible(lapply(packages, library, character.only = TRUE))
 
@@ -1629,7 +1631,7 @@ ORDINAL_WEIGHT_POWER <- 0.7 # 0 = no reweighting, 1 = fully balanced
 
 # polr() treats weights as frequency weights (each row counts as w observations)
 # Weights must sum to nrow(train_subset) so the effective sample size equals the actual sample size.
-compute_class_weights_ordinal <- function(train_data, power = ORDINAL_WEIGHT_POWER) {
+compute_class_weights_param <- function(train_data, power = ORDINAL_WEIGHT_POWER) {
   class_counts <- table(train_data$AQI_p24)
   w_raw     <- (1 / as.numeric(class_counts))^power
   w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
@@ -1640,7 +1642,7 @@ compute_class_weights_ordinal <- function(train_data, power = ORDINAL_WEIGHT_POW
 fit_ordinal <- function(train_data, partition) {
   train_subset_ordinal <- train_data %>% select(all_of(c(partition, "AQI_p24")))
   polr(AQI_p24 ~ ., data = train_subset_ordinal, Hess = TRUE,
-       weights = compute_class_weights_ordinal(train_subset_ordinal),
+       weights = compute_class_weights_param(train_subset_ordinal),
        method = "logistic")
 }
 
@@ -1719,7 +1721,7 @@ fit_partial <- function(train_data, partition, po_predictors) {
   formula <- as.formula(paste("TRUE ~ -1 +", paste(po_predictors, collapse = " + ")))
   vglm(AQI_p24 ~ ., data = train_subset_partial,
        family = cumulative(parallel = formula),
-       weights = compute_class_weights_ordinal(train_subset_partial))
+       weights = compute_class_weights_param(train_subset_partial))
 }
 po_predictors_A <- c("AQI_t2", "PM10")
 partial_A <- fit_partial(train_data, PARTITION_A, po_predictors_A)
@@ -1761,15 +1763,8 @@ class_recall_partial(partial_A, test_data, PARTITION_A) %>% print()
 
 ### Multinomial regression
 The partial proportional odds model is very close to the full multinomial regression as only two features are fulfilling the PO assumption. It also solves the issue with negative probabilities, as multinomial regression treats every class independently.
-```{r}
+```{r warning=FALSE}
 MULTINOMIAL_WEIGHT_POWER <- 0.7 # 0 = no reweighting, 1 = fully balanced
-compute_class_weights_multinomial <- function(train_data, power = MULTINOMIAL_WEIGHT_POWER) {
-  class_counts <- table(train_data$AQI_p24)
-  w_raw     <- (1 / as.numeric(class_counts))^power
-  w_per_row <- w_raw[as.integer(as.character(train_data$AQI_p24))]
-  # Normalize so weights sum to n (preserves effective sample size)
-  w_per_row / sum(w_per_row) * nrow(train_data)
-}
 
 fit_multinom <- function(train_data, partition) {
   train_subset_multinom <- train_data %>% select(all_of(c(partition, "AQI_p24")))
@@ -1777,7 +1772,7 @@ fit_multinom <- function(train_data, partition) {
   vglm(AQI_p24 ~ ., data = train_subset_multinom,
             family = multinomial(refLevel = 1),
             model = TRUE,
-            weights = compute_class_weights_multinomial(train_subset_multinom))
+            weights = compute_class_weights_param(train_subset_multinom, power = MULTINOMIAL_WEIGHT_POWER))
 }
 
 
@@ -1927,7 +1922,7 @@ summary_table <- bind_rows(
   print(width = Inf)
 
 ```
-The table contains every model that were tried for AQI classification prediction, clearly separating parametric and non-parametric models across both feature spaces. Couple of interesting things can be noted focusing on the macro F1 score and recall for Poor AQI class. The best models based on macro F1 were non-parametric RF and XGBoost, but multinomial and ordinal regression followed very closely. The Poor recall were best for parametric models, where partial PO outpreformed every other one, noting that it's macro F1 was on the lower side. Then multinomial regression followed, and after that the XGBoost and RF, making these three models best balanced on both of macro F1 and Poor recall class metrics. 
+The table contains every model tried for AQI classification prediction, clearly separating parametric and non-parametric models across both feature spaces. A couple of interesting things can be noted focusing on the macro F1 score and recall for Poor AQI class. The best models based on macro F1 were non-parametric RF and XGBoost, but multinomial and ordinal regression followed very closely. Poor recall was highest for parametric models, where partial PO outperformed every other one, though its macro F1 was lower. Then multinomial regression followed, and after that the XGBoost and RF, making these three models the best balanced on both of macro F1 and Poor recall class metrics. 
 
 
 ### Model performance (Macro F1 plots)
@@ -1955,7 +1950,7 @@ summary_table %>%
   theme(legend.position = "bottom")
 ```
 
-Partition B (pollutants + weather) consistently outperforms Partition A (pollutants only) across every model. This confirms that weather features carry additional predictive signal beyond pollutant lags. Among non-parametric models, XGBoost achieves the highest Macro F1. Among parametric models, Ordinal Regression performs the best.
+Partition B (pollutants + weather) consistently outperforms Partition A (pollutants only) across every model. This confirms that weather features carry additional predictive signal beyond pollutant lags. Among non-parametric models, XGBoost achieves the highest Macro F1. Among parametric models, Ordinal Regression performs the best, based on the Macro F1, very slightly above Multinomial regression.
 
 ### Per-class Recall Heatmap
 ```{r}
@@ -1994,7 +1989,7 @@ recall_long %>%
   theme_minimal()
 ```
 
-The heatmap reveals a split between non-parametric and parametric.  Parametric models maintain relatively balanced recall thanks to the class weighting approach. Also they were much better at predicting both minority classes, while the majority classes Fair and Moderate have slightly lower recall. 
+The heatmap reveals a split between non-parametric and parametric. Parametric models maintain relatively balanced recall thanks to the class weighting approach. They also were much better at predicting both minority classes, while the majority classes Fair and Moderate have slightly lower recall. 
 
 ### Feature Importance: RF vs XGBoost
 
@@ -2070,22 +2065,22 @@ ggplot(pr_df, aes(x = recall, y = precision, color = model)) +
   theme(legend.position = "bottom")
 ```
 
-RF and XGBoost are the strongest predictors for the Poor class, substantially above the random baseline. Parametric models are noticeably behind the non-parametric models, except for KNN which is essentially at the random baseline, and not useful for detecting the Poor class at all. As the parametrics models had equal or even better recall values in heatmap above, explanation why they are substentialy lower is because of the precision, meaning they more often missclassify other classes as Poor.
+RF and XGBoost are the strongest predictors for the Poor class, substantially above the random baseline. Parametric models are noticeably behind the non-parametric models, except for KNN which is essentially at the random baseline, and not useful for detecting the Poor class at all. As the parametrics models had equal or even better recall values in heatmap above, explanation why they are substantially lower is because of the precision, meaning they more often misclassify other classes as Poor.
 
 **Scenario 1 - Models across 2 feature space partitions**
 Across all three model families (Random Forest, XGBoost, kNN), adding weather features (Partition B) consistently raises Macro F1 and accuracy over pollutants-only (Partition A). This shows that weather variables carry additional predictive signal regardless of the model choice.
 
-Features that matter in both families, such as pollutants, lagged AQI and weather variables like pressure, were highly usefull for AQI predictions. Non-parametric models expose this through permutation importance, while with parametric models it can be analyzed by looking at the coefficents and statistical significance, noting that some assumption are violated in this dataset. Interesting variable is Snowfall, which there are only few observation in the dataset that has snowy hours. Parametric models interpret this as highly influencial parameter, while the non-parametric models have it as one of the lowest important features.
+Features that matter in both families, such as pollutants, lagged AQI and weather variables like pressure, were highly useful for AQI predictions. Non-parametric models expose this through permutation importance, while with parametric models it can be analyzed by looking at the coefficients and statistical significance, noting that some assumptions are violated in this dataset. An interesting variable is Snowfall, as the dataset contains very few hours with recorded snowfall. Parametric models interpret this as highly influential parameter, while the non-parametric models have it as one of the lowest important features.
 
 **Scenario 2 - Parametric vs. Non-parametric models**
-Non-parametric models (RF and XGBoost) offer highest macro F1 scores and they are the best options based on the PR curves, mainly because they capture non-linear relationships between predictors and AQI. Feature evaluation is possible by using permutation importance. When it comes to the reproducibility, all the non-parametric methods are based on randomness (stochastic) in some way, making the results always different (without explicitly setting seed).
+Non-parametric models (RF and XGBoost) offer the highest macro F1 scores and they are the best options based on the PR curves, mainly because they capture non-linear relationships between predictors and AQI. Feature evaluation is possible by using permutation importance. When it comes to the reproducibility, all the non-parametric methods are based on randomness (stochastic) in some way, making the results always different (without explicitly setting seed).
 
-Parametric methods offers more balanced recall metric across all the AQI classes and offer explainability in form of fitted coefficients, which can be interpreted how the predictor is influencing the overall outcome. Other statistics like std. error and z tests are harder to interpret, as this dataset is timeseries problem, violating statistical assumptions. As these models are not random based, the results can be easily reproduced, offering stronger reproducibility compared to the non-parametric models. If the inference is desired, the parametric models are better suited than the non-paramteric, which shine when pure prediction is more important.
+Parametric methods offer more balanced recall metric across all the AQI classes and offer explainability in form of fitted coefficients, which can be interpreted how the predictor is influencing the overall outcome. Other statistics like std. error and z tests are harder to interpret, as this dataset is timeseries problem, violating statistical assumptions. As these models are not random based, the results can be easily reproduced, offering stronger reproducibility compared to the non-parametric models. If the inference is desired, the parametric models are better suited than the non-parametric, which shine when pure prediction is the priority.
 
 ## Scenario 3 - Feature Selection: Wrapper vs. Embedded
 
 The multinomial model fitted above uses all 22 features in PARTITION_B. By utilizing feature selection methods, it may be possible to find smaller set of predictors that would explain the data better than the full 22 features.
-Two embedded methods and one wrapper one was performed and compared between each other and the base multionomial model.
+Two embedded methods and one wrapper method was performed and compared between each other and the base multinomial model.
 
 ### Parameters
 
@@ -2099,7 +2094,7 @@ GLMNET_NFOLDS <- 10 # folds for cross-validated lambda selection
 
 ### Lasso
 
-Lambda is selected by 10-fold cross-validation. Both the min lambda and 1-SE lambda are computed and showcase on the plot. For evaulation, we will use 1-SE lambda as it picks simpler model within one standard error of minimum. The plotted lambdas showcases that the 1-SE lambda keeps 17 features in the model, while minimal does 21. This does not mean the model will only retain 17 predictors because as we do multinomial regression and estimating coefficent for each class separately, some predictors can be included in one class estimation and not in others. The numbers 17 and 21 are calculated median for how many parameters were retained at that point across all classes.
+Lambda is selected by 10-fold cross-validation. Both the min lambda and 1-SE lambda are computed and shown on the plot. For evaluation, we will use 1-SE lambda as it picks simpler model within one standard error of minimum. The plotted lambdas shows that the 1-SE lambda keeps 17 features in the model, while minimal does 21. This does not mean the model retains only 17 predictors, because in multinomial regression coefficients are estimated separately for each class. Some predictors can be included in one class estimation and not in others. The numbers 17 and 21 are median for how many parameters were retained at that point across all classes.
 
 ```{r}
 set.seed(2026)
@@ -2109,7 +2104,7 @@ cv_lasso <- cv.glmnet(
   family   = "multinomial",
   alpha    = LASSO_ALPHA,
   nfolds   = GLMNET_NFOLDS,
-  weights  = compute_class_weights_multinomial(train_data),
+  weights  = compute_class_weights_param(train_data, power = MULTINOMIAL_WEIGHT_POWER),
   type.measure = "class"
 )
 plot(cv_lasso)
@@ -2131,7 +2126,7 @@ cv_elnet <- cv.glmnet(
   family   = "multinomial",
   alpha    = ELNET_ALPHA,
   nfolds   = GLMNET_NFOLDS,
-  weights  = compute_class_weights_multinomial(train_data),
+  weights  = compute_class_weights_param(train_data, power = MULTINOMIAL_WEIGHT_POWER),
   type.measure = "class"
 )
 plot(cv_elnet)
@@ -2142,7 +2137,7 @@ cat("Elastic Net lambda.1se:", cv_elnet$lambda.1se, "\n")
 
 ### Backward step
 
-Starting from the full multinomial B model, features are removed one at a time. At each step the feature whose removal most reduces AIC is dropped, continuing until no removal improves AIC. In this case removing any features lead to worse model so all of the predictors are kept.
+Starting from the full multinomial B model, features are removed one at a time. At each step the feature whose removal most reduces AIC is dropped, continuing until no removal improves AIC. In this case removing any features led to worse model so all of the predictors are kept.
 
 ```{r}
 multinom_step_B <- step4vglm(multinomial_B, direction = "backward")
@@ -2152,6 +2147,7 @@ cat("Features retained:", length(attr(terms(multinom_step_B), "term.labels")), "
 ```
 
 ### Feature retention table
+
 Summary table that showcase all the features and if they were kept across feature selection methods. In the case of this dataset and predicting AQI, all of the features were kept in the models for every feature selection method.
 
 ```{r}
@@ -2186,7 +2182,7 @@ print(feature_selection_table, n=22)
 ```
 
 ### Performance comparison
-Comparing performances, we can see that Lasso and Elasticnet methods perform better on all metrics. The stepAIC backward model did keep all of the features, making it identical to the default multinomial model.
+Comparing performances, we can see that Lasso and Elastic Net methods perform better on all metrics. The stepAIC backward model did keep all of the features, making it identical to the default multinomial model.
 
 ```{r}
 test_mat <- as.matrix(test_data %>% select(all_of(PARTITION_B)))
@@ -2209,7 +2205,7 @@ feature_selection_metrics
 ```
 
 #### Per-class recall
-The biggest difference is that the penalized model classified the Good category worse compared to the default multinomial model. For every other category, the Lasso and Elastic net performed better. Those two models are almost eqvivalent in performance, Elastic net has better macro F1 and worse Poor recall and lasso vice versa.
+The biggest difference is that the penalized model classified the Good category worse compared to the default multinomial model. For every other category, the Lasso and Elastic net performed better. Those two models are almost equivalent in performance, Elastic net has better macro F1 and worse Poor recall, and lasso vice versa.
 ```{r}
 feature_selection_recall <- bind_rows(
   compute_class_recall(preds_multinom_B, actual) %>% mutate(Method = "Multinomial B"),
@@ -2226,7 +2222,7 @@ ggplot(aes(x = Label, y = `Recall (%)`, fill = Method)) +
   scale_fill_brewer(palette = "Set2") +
   labs(
     title = "Per-class recall — Scenario 3 methods and full multinomial",
-    x = element_blank(), y = "Recall (%)", fill = "Method"
+    x = NULL, y = "Recall (%)", fill = "Method"
   ) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom")
@@ -2234,11 +2230,11 @@ ggplot(aes(x = Label, y = `Recall (%)`, fill = Method)) +
 
 ### Interpretation
 
-All of the feature selection methods kept every predictor, even though analysing coefficients from Lasso and Elastic net can tell us what features were important for what class. It showcase that some predictors do not have impact on all classes, supporting the argument why partial PO models had problems converging.
+Both of the embedded feature selection methods kept every predictor, but the coefficients can be analyzed to tell us what features were important for what class. It shows that some predictors do not have impact on all classes, supporting the argument why partial PO models had problems converging.
 
 The wrapper method, backward step selection, did also keep all the variables, making the model same as the multinomial B model. All of these methods suggest that the picked predictors are useful and provide new information about AQI.
 
-The performance was increased very slightly, Lasso and Elastic net models being more performative on both macro F1 and Poor recall. The step model was in the end same as the base multinomial model.
+The performance was increased very slightly, Lasso and Elastic net models being better performing on both macro F1 and Poor recall. The step model was in the end same as the base multinomial model.
 
 The feature set should be kept as it is, with all the features present in each model. The preliminary feature selection was based on domain knowledge and filter methods like VIF. The embedded and wrapper methods did not showcase any major changes, just confirmed that predictor subset was picked correctly and every variable does provide meaningful information to the prediction.
 
@@ -2519,7 +2515,7 @@ recall_comparison %>%
 
 - The balanced tree recovers minority-class recall dramatically (Good: 0%->76%, Poor: 2%->60%) at the cost of heavy over-prediction of those classes (predicts Good 6742 times vs. 1402 actual).
 
-- The weighted RF achieves the best macro F1 (0.464) by combining 500 trees with inverse-frequency weights, recovering minority-class recall without totally sacrificing majority-class precision.
+- The weighted RF achieves the best macro F1 (0.467) by combining 500 trees with inverse-frequency weights, recovering minority-class recall without totally sacrificing majority-class precision.
 
 A single tree of any depth agrees with the RF on at most ~78% of test cases. The remaining 22% represent ambiguous observations where the ensemble finds signal by averaging over many weak learners, while a single rule-based partition cannot. This is a fundamental limit of the single-tree model class on this dataset.
 
