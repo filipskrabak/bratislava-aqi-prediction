@@ -1,6 +1,6 @@
-# Predicting Bratislava AIQ (Air Quality Index) with ML
+# Predicting Bratislava AQI (Air Quality Index) with ML
 
-This project analyzes weather and air pollution data from Bratislava, Mamateyova street 2017-2024, to predict AIQ (Air Quality Index), focusing on **poor** conditions. Based on the findings, classifications with multiple algorithms are performed and the results are compared to each other, showcasing that the best models achieve much stronger predictive power than just simple baseline model (predicting same AIQ as the day before). It is a time-series problem, which with feature engineering can be made as supervised learning problem, suitable for classic machine learning models.
+This project analyzes weather and air pollution data from Bratislava, Mamateyova street 2017-2024, to predict AQI (Air Quality Index), focusing on **poor** conditions. Based on the findings, classifications with multiple algorithms are performed and the results are compared to each other, showcasing that the best models achieve much stronger predictive power than just simple baseline model (predicting same AQI as the day before). It is a time-series problem, which with feature engineering can be made as supervised learning problem, suitable for classic machine learning models.
 
 The whole analysis can be seen in [project.md](/project.md)
 
@@ -16,11 +16,11 @@ The whole analysis can be seen in [project.md](/project.md)
 ## Data
 This project required two datasets that were merged together based on the timestamps.
 
-Pollutants: [European Environment Agency (EEA) Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/)
+Pollutants: [European Environment Agency (EEA) Air Quality Download Service](https://eeadmz1-downloads-webapp.azurewebsites.net/) <br>
 Weather: [Open Meteo Historical Weather](https://open-meteo.com/en/docs/historical-weather-api)
 
 ## Results
-**Baseline model performance**
+**Baseline model performance** <br>
 Baseline model was simply predicting same AQI as it was the day before.
 
 | Metric          | Value |
