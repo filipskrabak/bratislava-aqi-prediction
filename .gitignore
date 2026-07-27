@@ -1,6 +1,26 @@
+# R / RStudio
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+
+# Editor / tooling
 .github/copilot-instructions.md
 .vscode/mcp.json
+
+# knitr + rmarkdown build output
+project.html
+project.pdf
+project.tex
+project_cache/
+project_files/figure-html/
+project_files/figure-latex/
+Rplots.pdf
+
+# LaTeX intermediates
+*.fdb_latexmk
+*.fls
+texput.*
+
+# Shiny cache
+data/
