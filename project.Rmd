@@ -14,7 +14,7 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r libraries}
+```{r libraries, message=FALSE, warning=FALSE}
 packages <- c(
   "conflicted", "tidyverse", "arrow", "lubridate", "tsibble",
   "here", # for handling paths correctly
