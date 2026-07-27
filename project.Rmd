@@ -12,6 +12,8 @@ editor_options:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+# Keep month/day labels in English regardless of the renderer's system locale
+Sys.setlocale("LC_TIME", "C")
 ```
 
 ```{r libraries, message=FALSE, warning=FALSE}

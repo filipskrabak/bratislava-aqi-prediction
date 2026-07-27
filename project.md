@@ -24,249 +24,15 @@ if (length(missing_packages) > 0) {
 }
 
 invisible(lapply(packages, library, character.only = TRUE))
-```
 
-    ## Warning: package 'ggplot2' was built under R version 4.4.3
-
-    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
-    ## ✔ dplyr     1.1.4     ✔ readr     2.1.5
-    ## ✔ forcats   1.0.0     ✔ stringr   1.5.1
-    ## ✔ ggplot2   4.0.3     ✔ tibble    3.2.1
-    ## ✔ lubridate 1.9.4     ✔ tidyr     1.3.1
-    ## ✔ purrr     1.0.4
-
-    ## Warning: package 'arrow' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'arrow'
-    ## 
-    ## The following object is masked from 'package:lubridate':
-    ## 
-    ##     duration
-    ## 
-    ## The following object is masked from 'package:utils':
-    ## 
-    ##     timestamp
-
-    ## Warning: package 'tsibble' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'tsibble'
-    ## 
-    ## The following object is masked from 'package:lubridate':
-    ## 
-    ##     interval
-    ## 
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     intersect, setdiff, union
-
-    ## Warning: package 'here' was built under R version 4.4.3
-
-    ## here() starts at C:/Users/Patrick/Desktop/OZNAL/oznal-project26
-
-    ## Warning: package 'corrplot' was built under R version 4.4.3
-
-    ## corrplot 0.95 loaded
-    ## 
-    ## Attaching package: 'zoo'
-    ## 
-    ## The following object is masked from 'package:tsibble':
-    ## 
-    ##     index
-    ## 
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     as.Date, as.Date.numeric
-
-    ## Warning: package 'forecast' was built under R version 4.4.3
-
-    ## Warning: package 'generics' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'generics'
-    ## 
-    ## The following object is masked from 'package:lubridate':
-    ## 
-    ##     as.difftime
-    ## 
-    ## The following object is masked from 'package:dplyr':
-    ## 
-    ##     explain
-    ## 
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     as.difftime, as.factor, as.ordered, intersect, is.element, setdiff,
-    ##     setequal, union
-
-    ## Warning: package 'fable' was built under R version 4.4.3
-
-    ## Loading required package: fabletools
-
-    ## Warning: package 'fabletools' was built under R version 4.4.3
-
-    ## Warning: package 'feasts' was built under R version 4.4.3
-
-    ## Warning: package 'ggtime' was built under R version 4.4.3
-
-    ## Warning: package 'tseries' was built under R version 4.4.3
-
-    ## Registered S3 method overwritten by 'quantmod':
-    ##   method            from
-    ##   as.zoo.data.frame zoo 
-    ## 
-    ## Attaching package: 'MASS'
-    ## 
-    ## The following object is masked from 'package:dplyr':
-    ## 
-    ##     select
-
-    ## Warning: package 'ranger' was built under R version 4.4.3
-
-    ## Warning: package 'pROC' was built under R version 4.4.3
-
-    ## Type 'citation("pROC")' for a citation.
-    ## 
-    ## Attaching package: 'pROC'
-    ## 
-    ## The following objects are masked from 'package:stats':
-    ## 
-    ##     cov, smooth, var
-
-    ## Warning: package 'performance' was built under R version 4.4.3
-
-    ## Warning: package 'brant' was built under R version 4.4.3
-
-    ## Warning: package 'scales' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'scales'
-    ## 
-    ## The following object is masked from 'package:purrr':
-    ## 
-    ##     discard
-    ## 
-    ## The following object is masked from 'package:readr':
-    ## 
-    ##     col_factor
-
-    ## Warning: package 'xgboost' was built under R version 4.4.3
-
-    ## Warning: package 'kknn' was built under R version 4.4.3
-
-    ## Warning: package 'vip' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'vip'
-    ## 
-    ## The following object is masked from 'package:utils':
-    ## 
-    ##     vi
-    ## 
-    ## Loading required package: carData
-    ## 
-    ## Attaching package: 'car'
-    ## 
-    ## The following object is masked from 'package:dplyr':
-    ## 
-    ##     recode
-    ## 
-    ## The following object is masked from 'package:purrr':
-    ## 
-    ##     some
-
-    ## Warning: package 'VGAM' was built under R version 4.4.3
-
-    ## Loading required package: stats4
-    ## Loading required package: splines
-
-    ## Warning: package 'patchwork' was built under R version 4.4.3
-
-    ## 
-    ## Attaching package: 'patchwork'
-    ## 
-    ## The following object is masked from 'package:MASS':
-    ## 
-    ##     area
-
-    ## Warning: package 'PRROC' was built under R version 4.4.3
-
-    ## Loading required package: rlang
-    ## 
-    ## Attaching package: 'rlang'
-    ## 
-    ## The following object is masked from 'package:arrow':
-    ## 
-    ##     string
-    ## 
-    ## The following objects are masked from 'package:purrr':
-    ## 
-    ##     %@%, flatten, flatten_chr, flatten_dbl, flatten_int, flatten_lgl,
-    ##     flatten_raw, invoke, splice
-
-    ## Warning: package 'glmnet' was built under R version 4.4.3
-
-    ## Loading required package: Matrix
-    ## 
-    ## Attaching package: 'Matrix'
-    ## 
-    ## The following objects are masked from 'package:tidyr':
-    ## 
-    ##     expand, pack, unpack
-    ## 
-    ## Loaded glmnet 4.1-10
-    ## 
-    ## Attaching package: 'rpart'
-    ## 
-    ## The following object is masked from 'package:generics':
-    ## 
-    ##     prune
-
-    ## Warning: package 'rpart.plot' was built under R version 4.4.3
-
-``` r
 conflict_prefer("filter", "dplyr")
-```
-
-    ## [conflicted] Will prefer dplyr::filter over any other package.
-
-``` r
 conflict_prefer("lag", "dplyr")
-```
-
-    ## [conflicted] Will prefer dplyr::lag over any other package.
-
-``` r
 conflict_prefer("select", "dplyr")
-```
-
-    ## [conflicted] Will prefer dplyr::select over any other package.
-
-``` r
 conflict_prefer("interval", "tsibble")
-```
-
-    ## [conflicted] Will prefer tsibble::interval over any other package.
-
-``` r
 conflict_prefer("vi", "vip")
-```
-
-    ## [conflicted] Will prefer vip::vi over any other package.
-
-``` r
 conflict_prefer("slice", "dplyr")
-```
 
-    ## [conflicted] Will prefer dplyr::slice over any other package.
-
-``` r
 here::i_am("project.Rmd")
-```
-
-    ## here() starts at C:/Users/Patrick/Desktop/OZNAL/oznal-project26
-
-``` r
 set.seed(2026) # reproducibility
 ```
 
@@ -338,13 +104,13 @@ Lets look at numeric ranges and unique values of the columns.
 summary(filtered_air_data)
 ```
 
-    ##      Start                          Pollutant        Value        
-    ##  Min.   :2017-01-01 01:00:00.00   Min.   :   1   Min.   : -3.836  
-    ##  1st Qu.:2019-01-01 10:00:00.00   1st Qu.:   5   1st Qu.:  5.410  
-    ##  Median :2020-12-29 00:30:00.00   Median :   7   Median : 12.783  
-    ##  Mean   :2020-12-29 15:50:02.91   Mean   :1223   Mean   : 21.264  
-    ##  3rd Qu.:2022-12-26 14:00:00.00   3rd Qu.:   8   3rd Qu.: 27.421  
-    ##  Max.   :2025-01-01 00:00:00.00   Max.   :6001   Max.   :657.845  
+    ##      Start                       Pollutant        Value        
+    ##  Min.   :2017-01-01 01:00:00   Min.   :   1   Min.   : -3.836  
+    ##  1st Qu.:2019-01-01 10:00:00   1st Qu.:   5   1st Qu.:  5.410  
+    ##  Median :2020-12-29 00:30:00   Median :   7   Median : 12.783  
+    ##  Mean   :2020-12-29 15:50:02   Mean   :1223   Mean   : 21.264  
+    ##  3rd Qu.:2022-12-26 14:00:00   3rd Qu.:   8   3rd Qu.: 27.421  
+    ##  Max.   :2025-01-01 00:00:00   Max.   :6001   Max.   :657.845  
     ##  Samplingpoint         Validity    
     ##  Length:338624      Min.   :1.000  
     ##  Class :character   1st Qu.:1.000  
@@ -1105,7 +871,7 @@ complete_data %>%
   summarise(AQI = mean(AQI, na.rm = TRUE), .groups = "drop") %>%
   ggplot(aes(Week, AQI)) +
   geom_line(color = "steelblue", linewidth = 0.4, alpha = 0.6) +
-  geom_smooth(method = "loess", span = 1, se = FALSE, color = "firebrick", linewidth = 1) +
+  geom_smooth(method = "loess", span = 0.1, se = FALSE, color = "firebrick", linewidth = 1) +
   scale_x_datetime(date_breaks = "1 year", date_labels = "%Y") +
   scale_y_continuous(
     breaks = 1:4,
@@ -1333,7 +1099,7 @@ tseries::kpss.test(complete_data$AQI)
     ##  KPSS Test for Level Stationarity
     ## 
     ## data:  complete_data$AQI
-    ## KPSS Level = 18.161, Truncation lag parameter = 20, p-value = 0.01
+    ## KPSS Level = 19.973, Truncation lag parameter = 20, p-value = 0.01
 
 ``` r
 tseries::kpss.test(data_season_year_day$remainder)
@@ -4461,11 +4227,11 @@ printcp(tree_B)
     ##          CP nsplit rel error  xerror      xstd
     ## 1 0.2598653      0   1.00000 1.00000 0.0040863
     ## 2 0.0069795      1   0.74013 0.74013 0.0040234
-    ## 3 0.0036057      4   0.71920 0.72114 0.0040056
-    ## 4 0.0035325      6   0.71198 0.71052 0.0039949
-    ## 5 0.0010738      9   0.70056 0.70316 0.0039871
-    ## 6 0.0010616     12   0.69734 0.70097 0.0039847
-    ## 7 0.0010000     13   0.69628 0.70056 0.0039842
+    ## 3 0.0036057      4   0.71920 0.72106 0.0040055
+    ## 4 0.0035325      6   0.71198 0.71279 0.0039972
+    ## 5 0.0010738      9   0.70056 0.70375 0.0039877
+    ## 6 0.0010616     12   0.69734 0.70294 0.0039868
+    ## 7 0.0010000     13   0.69628 0.70291 0.0039868
 
 The `xerror` stops decreasing at around 13 splits, tells us that a
 single tree on this problem exhausts its useful complexity at that
